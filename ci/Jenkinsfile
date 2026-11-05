@@ -1,7 +1,8 @@
 // Self-contained Jenkins pipeline for the hashbin-quarkus backend. No shared-library calls on
 // purpose: the org's `DockerfileBuild` can't run this project's tests and `DinDBuild` can't push
-// its image (see the "why" in docs/HANDOFF.md). This one run builds, tests, and pushes a **native**
-// container image to the org Harbor.
+// its image (see the "why" in README "CI (Jenkins)" / "Decisions & gotchas"). This one run builds,
+// tests, and pushes a container image to the org Harbor — a JVM image by default, the native one
+// when the BUILD_NATIVE parameter is true.
 //
 // Why `ci/Jenkinsfile` and not the repository root: the org runs two Jenkins controllers that find
 // pipelines by *path* — the legacy one reads `Jenkinsfile` in the root, the current one
@@ -13,12 +14,13 @@
 //     Services (no JDBC URL => Testcontainers starts Postgres in a container), but docker-java in
 //     Testcontainers 1.20.6 negotiates Docker API v1.32, which modern daemons reject ("minimum
 //     supported API version is 1.40") and DOCKER_API_VERSION is ignored by that client (see
-//     docs/HANDOFF.md — it is why local dev uses Podman). So the pod runs a plain `postgres`
-//     sidecar and the build points its datasource at it, bypassing Dev Services entirely.
-//   * Stage 2 builds the **native** image with `docker build` of a multi-stage recipe whose builder
-//     stage is Mandrel/JDK-21 (native-image runs there — no GraalVM on the agent). That needs a
-//     Docker daemon, so a `docker:dind-rootless` sidecar stays; the docker CLI / BuildKit it drives
-//     speak a modern API, so the version problem above does not apply to the image build.
+//     README "Decisions & gotchas" — it is why local dev uses Podman). So the pod runs a plain
+//     `postgres` sidecar and the build points its datasource at it, bypassing Dev Services entirely.
+//   * Stage 2 builds the container image with `docker build` of a multi-stage recipe — JVM by
+//     default, native (Mandrel/JDK-21 builder stage, native-image runs there — no GraalVM on the
+//     agent) when BUILD_NATIVE=true. Either way that needs a Docker daemon, so a
+//     `docker:dind-rootless` sidecar stays; the docker CLI / BuildKit it drives speak a modern API,
+//     so the version problem above does not apply to the image build.
 // All containers share the Jenkins workspace volume. The Harbor naming + `jenkins-harbor`
 // credential mirror `DockerfileBuild`.
 
