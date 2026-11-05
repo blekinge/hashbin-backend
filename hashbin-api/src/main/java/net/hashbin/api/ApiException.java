@@ -1,13 +1,17 @@
 package net.hashbin.api;
 
 /**
- * A failed API call from {@link HashbinClient}: a non-2xx status, or a
- * transport/parse error. Carries the HTTP {@link #status()} ({@code 0} when the
- * request never reached the server) and the server's own {@code error} message
- * extracted from {@code {"error": "..."}} when present.
+ * The checked exception declared by the generated {@code *Api} client interfaces
+ * (e.g. {@code TimestampsApi}) for failed calls: a non-2xx status or a transport/parse
+ * error. Carries the HTTP {@link #status()} and the server's {@code error} message from
+ * {@code {"error": "..."}}.
  *
- * <p>Hand-written (not generated): the client is hand-written by design, and the
- * API's error shape is a contract detail the OpenAPI document does not model.
+ * <p>Hand-written, not generated: the OpenAPI generator references {@code ApiException}
+ * in every operation signature but does not emit the class when supporting files are
+ * off. To have the generated client actually <em>throw</em> it on a non-2xx response,
+ * register an {@code ExceptionMapper} (or a {@code ClientResponseExceptionMapper}) on
+ * the built client; otherwise the MicroProfile implementation surfaces non-2xx via
+ * {@code WebApplicationException} per the MP spec.
  */
 public class ApiException extends RuntimeException {
 

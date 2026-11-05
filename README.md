@@ -7,7 +7,7 @@ independent build units:
 | Module | What it is | Build |
 |---|---|---|
 | **`hashbin-quarkus`** | The service / Docker image. **All Quarkus lives here.** | Quarkus 3.40.1 / JDK 21 |
-| **`hashbin-api`** | Java client: **models + a MicroProfile REST Client generated from the service's OpenAPI**; hand-written HMAC + a dependency-free `HashbinClient`. | JDK 21, openapi-generator + Jackson |
+| **`hashbin-api`** | Java client: **models + a MicroProfile REST Client generated from the service's OpenAPI**, plus hand-written HMAC verification. | JDK 21, openapi-generator + Jackson |
 
 A parent POM (`hashbin-parent`, `packaging=pom`) aggregates the two and holds only
 shared, Quarkus-free build config.
@@ -30,23 +30,24 @@ as a versioned Maven artifact:
 ```
 
 ```java
-HashbinClient client = new HashbinClient("https://hashbin.net/api");
+// The generated MicroProfile REST Client (base URL via quarkus.rest-client.hashbin.url):
+@Inject @RestClient TimestampsApi timestamps;
 
 // hash a file yourself (the client is contract-only, no file-IO concern), then stamp:
-TimestampView ts = client.stamp(
+TimestampView ts = timestamps.apiStampPost(
         new StampRequest().hashSha256(sha256).fileSize(size).fileName("report.pdf"),
-        token /* or null for anonymous */);
+        null, null);
 
 // independently confirm the record was signed by a legitimate server:
 boolean authentic = Signature.verify(System.getenv("HASHBIN_HMAC_SECRET"), ts);
 
-List<TimestampPublicView> history = client.verify(sha256, "auto");
+List<TimestampPublicView> history = timestamps.apiVerifyGet("auto", sha256);
 ```
 
-Quarkus consumers can instead use the **generated** MicroProfile REST Client
-(`@Inject @RestClient TimestampsApi`, with `BearerClientHeadersFactory` for the token).
-The **HMAC verification** stays hand-written — the signature scheme is the one part of the
-contract an OpenAPI document cannot express. See [`hashbin-api`](hashbin-api/README.md).
+The bearer token is supplied with `BearerClientHeadersFactory` (SmallRye filters
+`Authorization` from the generated parameters). The **HMAC verification** is hand-written —
+the signature scheme is the one part of the contract an OpenAPI document cannot express.
+See [`hashbin-api`](hashbin-api/README.md).
 
 ## Build
 
