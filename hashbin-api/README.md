@@ -2,8 +2,7 @@
 
 The Java client for the [hashbin.net](https://hashbin.net) timestamping API. Its
 **models and a MicroProfile REST Client interface are generated at build time from the
-service's OpenAPI document**, so they cannot drift from `hashbin-quarkus`. The HMAC
-signature verification is hand-written on top (it isn't expressible in OpenAPI).
+service's OpenAPI document**, so they cannot drift from `hashbin-quarkus`.
 
 ```xml
 <dependency>
@@ -25,11 +24,10 @@ hashbin-api:
      - net.hashbin.api.model.*            (StampRequest, TimestampView, TimestampPublicView,
                                            AuthRequest, AuthResponse, MeView)  — Jackson POJOs
      - net.hashbin.api.{Timestamps,Auth,Health,Docs}Api   — @RegisterRestClient interfaces
-  hand-written
-     - net.hashbin.api.security.Signature             (HMAC sign/verify)
+  hand-written (minimal glue the generator doesn't produce)
      - net.hashbin.api.auth.BearerClientHeadersFactory (adds Authorization: Bearer …)
-     - net.hashbin.api.ApiException                    (the error the generated ops declare/throw)
-     - net.hashbin.api.HashbinErrorMapper              (maps non-2xx -> ApiException)
+     - net.hashbin.api.ApiException                     (the error the generated ops declare/throw)
+     - net.hashbin.api.HashbinErrorMapper               (maps non-2xx -> ApiException)
   bundled into the jar: META-INF/openapi/{openapi.yaml,openapi.json}
 ```
 
@@ -56,27 +54,25 @@ TimestampView ts = timestamps.apiStampPost(
         new StampRequest().hashSha256(sha256).fileSize(size).fileName("report.pdf"),
         null, null);                                    // x-forwarded-for / cf-connecting-ip
 
-// independently confirm the record was signed by a legitimate server:
-boolean authentic = Signature.verify(System.getenv("HASHBIN_HMAC_SECRET"), ts);
+List<TimestampPublicView> history = timestamps.apiVerifyGet("auto", sha256);
 ```
 
-### Passing the bearer token
+### Auth and error handling
 
-SmallRye OpenAPI hard-filters `Authorization` from the generated parameters, so the token
-is **not** a method argument. Supply it with a `ClientHeadersFactory`:
+SmallRye OpenAPI hard-filters `Authorization` from the generated parameters, so the bearer
+token is **not** a method argument — supply it with a `ClientHeadersFactory`. Register
+`HashbinErrorMapper` so non-2xx responses throw the `ApiException` the operations declare:
 
 ```java
-// Programmatic, per-instance token:
 TimestampsApi api = RestClientBuilder.newBuilder()
         .base(URI.create("https://hashbin.net"))
         .register(new BearerClientHeadersFactory(token))   // omit for anonymous endpoints
-        .register(new HashbinErrorMapper())                // non-2xx -> ApiException
+        .register(new HashbinErrorMapper())                // non-2xx -> ApiException(status, message)
         .build(TimestampsApi.class);
 ```
 
-For CDI injection, register the factory once (e.g. a `@RegisterProvider` on a producer or
-a request-scoped token source) — anonymous endpoints (`health`, `verify`, `explore`,
-unattributed `stamp`) need none.
+For CDI injection, register the factory once via `@RegisterProvider` (or a producer);
+anonymous endpoints (`health`, `verify`, `explore`, unattributed `stamp`) need no token.
 
 ## Why `library=microprofile`
 
@@ -91,13 +87,13 @@ dependencies into the models. `microprofile` yields clean Jackson POJOs + JAX-RS
 ```bash
 export JAVA_HOME=<a JDK 21>
 ./mvnw install -DskipTests      # build the service first (emits the spec), then generate + compile this
-./mvnw -pl hashbin-api test     # generated models/client + signature + bundled-spec reflection checks
+./mvnw -pl hashbin-api test     # generated models/client + error-mapper + bearer + spec-bundling
 ```
 
-Tests are plain JUnit (no MicroProfile runtime required): an HMAC vector pinned to RFC 4231;
-signature verify (valid/tampered/wrong-secret) over the generated getters; and a reflection
-test asserting the generated API interfaces carry the expected operations, the spec is
-bundled on the classpath, and the bearer factory injects the header.
+Tests are plain JUnit (no MicroProfile runtime required): a reflection test asserting the
+generated API interfaces carry the expected operations and the OpenAPI docs are bundled on
+the classpath; the bearer factory's header injection (on/off); and the error mapper's
+status/`{"error":...}` parsing.
 
 ## License
 

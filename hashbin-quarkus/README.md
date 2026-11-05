@@ -43,9 +43,8 @@ repos, not a monorepo):
   DB via Quarkus Dev Services (throwaway Postgres through Testcontainers). A
   file-activated `web` Maven profile serves `../../hashbin-web/dist` same-origin. The
   native container-image build is wired (Docker extension + Mandrel container build).
-- **hashbin-api** *(sibling module)* — Java client for the `/api` contract: models
-  generated from this service's spec (models + MicroProfile REST client), plus the
-  hand-written HMAC verify scheme. No Quarkus dependency.
+- **hashbin-api** *(sibling module)* — Java client for the `/api` contract: models + a
+  MicroProfile REST Client generated from this service's spec. No Quarkus dependency.
 - **hashbin-web** — dependency-free static frontend (vanilla TypeScript + `tsc`; no
   Lovable/Supabase). `dist/` is git-ignored build output (run `npm run build`);
   `./build.sh` self-bootstraps the pinned Node; CI builds its nginx image from source.
@@ -379,12 +378,12 @@ hashbin-quarkus/                      # -- the service module (all Quarkus lives
 hashbin-api/                          # -- the client module (models + client GENERATED from the spec) --
   pom.xml                             # openapi-generator (java/microprofile) + Jackson; bundles META-INF/openapi
   src/main/java/net/hashbin/api/
-    ApiException.java                 # hand-written: checked error type declared by the generated ops
-    security/Signature.java           # hand-written: HMAC sign/verify (the part OpenAPI can't express)
+    ApiException.java                 # hand-written: the error type the generated ops declare/throw
+    HashbinErrorMapper.java           # hand-written: non-2xx -> ApiException (status + {"error":...})
     auth/BearerClientHeadersFactory.java  # hand-written: adds Authorization: Bearer for the generated client
     # model/* AND net.hashbin.api.{Timestamps,Auth,Health,Docs}Api are GENERATED at build time into
     # target/generated-sources/openapi (not committed): Jackson POJOs + @RegisterRestClient interfaces.
-  src/test/java/net/hashbin/api/      # plain-JUnit: signature + generated-API/spec/bearer reflection tests
+  src/test/java/net/hashbin/api/      # plain-JUnit: generated-API/spec/bearer/error-mapper tests
 ```
 
 ## License

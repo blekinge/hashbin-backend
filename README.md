@@ -7,7 +7,7 @@ independent build units:
 | Module | What it is | Build |
 |---|---|---|
 | **`hashbin-quarkus`** | The service / Docker image. **All Quarkus lives here.** | Quarkus 3.40.1 / JDK 21 |
-| **`hashbin-api`** | Java client: **models + a MicroProfile REST Client generated from the service's OpenAPI**, plus hand-written HMAC verification. | JDK 21, openapi-generator + Jackson |
+| **`hashbin-api`** | Java client: **models + a MicroProfile REST Client generated from the service's OpenAPI.** | JDK 21, openapi-generator + Jackson |
 
 A parent POM (`hashbin-parent`, `packaging=pom`) aggregates the two and holds only
 shared, Quarkus-free build config.
@@ -38,16 +38,12 @@ TimestampView ts = timestamps.apiStampPost(
         new StampRequest().hashSha256(sha256).fileSize(size).fileName("report.pdf"),
         null, null);
 
-// independently confirm the record was signed by a legitimate server:
-boolean authentic = Signature.verify(System.getenv("HASHBIN_HMAC_SECRET"), ts);
-
 List<TimestampPublicView> history = timestamps.apiVerifyGet("auto", sha256);
 ```
 
 The bearer token is supplied with `BearerClientHeadersFactory` (SmallRye filters
-`Authorization` from the generated parameters). The **HMAC verification** is hand-written —
-the signature scheme is the one part of the contract an OpenAPI document cannot express.
-See [`hashbin-api`](hashbin-api/README.md).
+`Authorization` from the generated parameters), and `HashbinErrorMapper` turns non-2xx
+responses into `ApiException`. See [`hashbin-api`](hashbin-api/README.md).
 
 ## Build
 
