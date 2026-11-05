@@ -22,6 +22,24 @@
 // All containers share the Jenkins workspace volume. The Harbor naming + `jenkins-harbor`
 // credential mirror `DockerfileBuild`.
 
+// Shell prelude for steps that drive the docker CLI inside the dind container.
+// docker:dind-rootless runs dockerd as a non-root user, whose socket is at $XDG_RUNTIME_DIR/docker.sock
+// (i.e. /run/user/<uid>), and the image does NOT export DOCKER_HOST. Do NOT hardcode the uid — derive
+// it from the live `id -u` so it is correct whatever user the build agent runs as. Also waits for the
+// daemon to answer before returning.
+String dockerClientEnv() {
+    return '''
+        set -eu
+        RUNTIME="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+        [ -S "$RUNTIME/docker.sock" ] || RUNTIME="/run/user/$(id -u)"
+        export XDG_RUNTIME_DIR="$RUNTIME"
+        export DOCKER_HOST="unix://$RUNTIME/docker.sock"
+        export DOCKER_BUILDKIT=1
+        for i in $(seq 1 60); do docker info >/dev/null 2>&1 && break; sleep 1; done
+        docker info >/dev/null   # fail fast, clearly, if the daemon never comes up
+    '''
+}
+
 pipeline {
     agent {
         kubernetes {
@@ -88,13 +106,6 @@ pipeline {
                     tty: true
                     securityContext:
                       privileged: true
-                    env:
-                    # The CLI in this container talks to its own rootless dockerd over the unix socket
-                    # (docker:dind-rootless exports no DOCKER_HOST; the /var/run default doesn't exist).
-                    - name: XDG_RUNTIME_DIR
-                      value: /run/user/1000
-                    - name: DOCKER_HOST
-                      value: unix:///run/user/1000/docker.sock
                     resources:
                       requests: { memory: "4Gi" }
                       limits:   { memory: "8Gi" }
@@ -176,12 +187,7 @@ pipeline {
                     // Build from source. DOCKER_BUILDKIT=1 honours `# syntax=docker/dockerfile:1`
                     // and enables the modern builder. The native binary compiles inside the Mandrel
                     // builder stage, so no GraalVM and no nested container build.
-                    sh '''
-                        set -eu
-                        export DOCKER_BUILDKIT=1
-                        # Wait for rootless dockerd (DOCKER_HOST is the unix socket above).
-                        for i in $(seq 1 60); do docker info >/dev/null 2>&1 && break; sleep 1; done
-                        docker info >/dev/null
+                    sh dockerClientEnv() + '''
                         docker build \
                           --target final \
                           --tag "$IMAGE_TAG" \
@@ -192,8 +198,7 @@ pipeline {
                     withCredentials([usernamePassword(credentialsId: 'jenkins-harbor',
                                                       usernameVariable: 'USERNAME',
                                                       passwordVariable: 'PASSWORD')]) {
-                        sh '''
-                            set -eu
+                        sh dockerClientEnv() + '''
                             printf '%s' "$PASSWORD" | docker login harbor.tools.nyx.kb.dk \
                               --username "$USERNAME" --password-stdin
                             docker push "$IMAGE_TAG"
