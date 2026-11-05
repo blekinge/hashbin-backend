@@ -108,7 +108,7 @@ non-root UID 185 on port 8080, matching the Deployment's `securityContext`/`cont
 
 > This `mvn` command is the manual / local build (the `ghcr.io/blekinge/...` path). CI builds the
 > same native image a different way — a multi-stage `docker build` pushed to the org **Harbor** —
-> see "CI (Jenkins)" below. A separate `web` image (nginx) is built from `../hashbin-web/Dockerfile`.
+> see "CI (Jenkins)" below. A separate `web` image (nginx) is built from `../hashbin-web` (via `Dockerfile.ci`).
 
 ## CI (Jenkins)
 

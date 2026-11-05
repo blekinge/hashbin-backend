@@ -10,7 +10,8 @@ A quick "where things stand" snapshot. Full rationale, decisions and gotchas liv
   serves `../hashbin-web/dist` same-origin. The native container-image build is wired (Docker
   extension + Mandrel container build). 50 tests, green.
 - **hashbin-web** — dependency-free static frontend (vanilla TypeScript + `tsc`). `dist/` is
-  committed; `./build.sh` self-bootstraps the pinned Node; CI builds the image from source.
+  git-ignored build output (run `npm run build`); `./build.sh` self-bootstraps the pinned Node;
+  CI builds the image from source.
 - **hashbin-deploy** — Kubernetes (Kustomize) manifests for the api + web + database.
 
 ## Recently completed
@@ -37,8 +38,8 @@ A quick "where things stand" snapshot. Full rationale, decisions and gotchas liv
 - **JDK 21** on `JAVA_HOME` — required; Quarkus 3.20's Hibernate build fails on newer JDKs.
 - A container engine (Docker, or rootless Podman) reachable by Testcontainers, for Dev Services and
   the native image build.
-- **Node ≥ 20** only to rebuild `dist/` from source; the committed `dist/` and CI's build-from-source
-  both avoid needing a local Node.
+- **Node ≥ 20** to build `dist/` from source (it is git-ignored, not committed). CI avoids a local
+  Node entirely — its image build runs `npm ci` + `npm run build` inside a Node container.
 
 ## Locked decisions
 
