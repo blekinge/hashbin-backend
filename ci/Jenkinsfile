@@ -188,8 +188,10 @@ pipeline {
                         // Jenkins env vars are null on this GitHub job, so don't depend on them).
                         def harborName = 'harbor.tools.nyx.kb.dk'
                         def harborLibrary = 'blekinge'
-                        // Repo name: Bitbucket var, else GitHub's REPO, else this repo's literal.
-                        def projectName = env.BITBUCKET_REPOSITORY ?: env.REPO ?: 'hashbin-quarkus'
+                        // Image name: a PINNED literal, deliberately NOT derived from the git repo
+                        // slug — renaming the GitHub repo must not move the image that consumers
+                        // (hashbin-deploy) pull. Kept equal to the OSS ghcr image name below.
+                        def projectName = 'hashbin-backend'
 
                         def validBranchTag = (env.BRANCH_NAME ?: 'dev')
                             .replace('/', '-').replace('+', '-').replace('_', '-')

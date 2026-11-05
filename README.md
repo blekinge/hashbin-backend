@@ -70,7 +70,7 @@ Full details, endpoints, config, CI, and gotchas: **[`hashbin-quarkus/README.md`
 ## Container image
 
 CI (`ci/Jenkinsfile`) builds **from source** inside a multi-stage recipe and pushes
-to the org Harbor (`ghcr.io/blekinge/hashbin-quarkus` for manual builds). Those
+to the org Harbor (`ghcr.io/blekinge/hashbin-backend` for manual builds). Those
 recipes scope the Maven build to the service module (`-pl hashbin-quarkus -am`) and
 read artifacts from `hashbin-quarkus/target/...`. See the service README.
 

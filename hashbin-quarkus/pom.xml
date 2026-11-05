@@ -88,7 +88,7 @@
     <!-- Container-image build (Docker/Podman). Build-time only: it contributes no
          runtime code, so `mvn test` / `mvn package` behave exactly as before. It
          makes `mvn package` able to produce the native image that hashbin-deploy
-         pulls (ghcr.io/blekinge/hashbin-quarkus) — see README "Container image". -->
+         pulls (ghcr.io/blekinge/hashbin-backend) — see README "Container image". -->
     <dependency>
       <groupId>io.quarkus</groupId>
       <artifactId>quarkus-container-image-docker</artifactId>

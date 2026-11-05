@@ -134,7 +134,7 @@ net.hashbin:hashbin-quarkus:jar:openapi   # unpacked by hashbin-api's maven-depe
 ## Container image
 
 The build can produce the native container image that [`hashbin-deploy`](../../hashbin-deploy)
-pulls (`ghcr.io/blekinge/hashbin-quarkus`). `quarkus-container-image-docker` is wired into
+pulls (`ghcr.io/blekinge/hashbin-backend`). `quarkus-container-image-docker` is wired into
 the pom; the image repo path lives in `application.properties`, the tag is set per release.
 The native binary is compiled **inside a Mandrel builder container**
 (`quarkus.native.container-build=true` in the `native` profile), so **no local GraalVM is
@@ -146,7 +146,7 @@ needed** — only a container engine.
 mvn -P '!web' -Dnative -DskipTests \
     -Dquarkus.container-image.build=true -Dquarkus.container-image.push=true \
     -Dquarkus.container-image.tag=1.0.0 package
-# → ghcr.io/blekinge/hashbin-quarkus:1.0.0
+# → ghcr.io/blekinge/hashbin-backend:1.0.0
 ```
 
 On this host the engine is **rootless Podman** — add these flags (and export
@@ -189,7 +189,7 @@ Two stages:
    app start; all 50 tests run against the sidecar DB.
 2. **Build and push image** — a multi-stage `docker build` **from source**, pushed to the org
    **Harbor** as
-   `harbor.tools.nyx.kb.dk/blekinge/hashbin-quarkus:<version>-<branch>-sha.<sha>-build.<n>`
+   `harbor.tools.nyx.kb.dk/blekinge/hashbin-backend:<version>-<branch>-sha.<sha>-build.<n>`
    (the `blekinge` library segment is pinned — the Bitbucket env vars are null on the GitHub
    job), using the `jenkins-harbor` credential. The image kind is chosen by the `BUILD_NATIVE`
    parameter: **default `false` → JVM image** from `Dockerfile.jvm-multi-stage` (Maven fast-jar
@@ -212,7 +212,7 @@ The pipeline requires the committed Maven wrapper (`./mvnw`, `.mvn/wrapper/`), t
 `allTests` Maven profile, and a `.dockerignore` (trims the build context).
 
 **Registry split (deliberate):** CI pushes the **org Harbor** image. The
-**`ghcr.io/blekinge/hashbin-quarkus`** image that `hashbin-deploy` references is the *OSS / local*
+**`ghcr.io/blekinge/hashbin-backend`** image that `hashbin-deploy` references is the *OSS / local*
 path, built by hand with the `mvn … package` command in [Container image](#container-image).
 Two registries, the same native image.
 
