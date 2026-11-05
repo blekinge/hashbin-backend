@@ -1,8 +1,9 @@
 # hashbin-api
 
 The Java client for the [hashbin.net](https://hashbin.net) timestamping API. Its
-**models and a MicroProfile REST Client interface are generated at build time from the
-service's OpenAPI document**, so they cannot drift from `hashbin-quarkus`.
+**models, a MicroProfile REST Client interface, and the exception plumbing are all
+generated at build time from the service's OpenAPI document**, so they cannot drift from
+`hashbin-quarkus`.
 
 ```xml
 <dependency>
@@ -20,14 +21,18 @@ hashbin-quarkus  --(quarkus build: store-schema-directory)-->  target/generated-
         v
 hashbin-api:
   maven-dependency-plugin:unpack  ->  target/openapi/{openapi.yaml,openapi.json}
-  openapi-generator (java / microprofile)        [GENERATED, into target/, not committed]
+  openapi-generator (java / microprofile, generateSupportingFiles=true)   [GENERATED]
+     into ./target/generated-sources (output=. + configOptions.sourceFolder), pruned by
+     ./.openapi-generator-ignore (the generator's scaffolding at the module root is discarded):
      - net.hashbin.api.model.*            (StampRequest, TimestampView, TimestampPublicView,
                                            AuthRequest, AuthResponse, MeView)  — Jackson POJOs
      - net.hashbin.api.{Timestamps,Auth,Health,Docs}Api   — @RegisterRestClient interfaces
-  hand-written (minimal glue the generator doesn't produce)
+     - net.hashbin.api.ApiException        — the error the ops declare/throw (extends Exception)
+     - net.hashbin.api.ApiExceptionMapper  — @Provider ResponseExceptionMapper: non-2xx -> ApiException
+     - net.hashbin.api.RFC3339*            — Jackson java.time helpers (unused here; all timestamps
+                                             are modelled as ISO-8601 strings)
+  hand-written (the one thing OpenAPI can't express)
      - net.hashbin.api.auth.BearerClientHeadersFactory (adds Authorization: Bearer …)
-     - net.hashbin.api.ApiException                     (the error the generated ops declare/throw)
-     - net.hashbin.api.HashbinErrorMapper               (maps non-2xx -> ApiException)
   bundled into the jar: META-INF/openapi/{openapi.yaml,openapi.json}
 ```
 
@@ -38,8 +43,9 @@ hashbin-api:
   Build from the repository root (`./mvnw install`) so the spec is fresh.
 * Because everything is regenerated from the current spec each build, a service
   contract change flows straight here and shows up as a **compile error** in callers.
-* **Nice-to-have:** the exact `openapi.yaml` + `openapi.json` are packaged at
-  `META-INF/openapi/`, so a consumer of this jar always has the spec it was built from.
+* The generated `ApiException`/`ApiExceptionMapper` reference `jackson-datatype-jsr310`,
+  which arrives `provided` through the spec artifact (Quarkus's own Jackson) — the same
+  pattern as the provided Jakarta/MicroProfile API jars: the consumer supplies the impl.
 
 ## Usage
 
@@ -60,19 +66,22 @@ List<TimestampPublicView> history = timestamps.apiVerifyGet("auto", sha256);
 ### Auth and error handling
 
 SmallRye OpenAPI hard-filters `Authorization` from the generated parameters, so the bearer
-token is **not** a method argument — supply it with a `ClientHeadersFactory`. Register
-`HashbinErrorMapper` so non-2xx responses throw the `ApiException` the operations declare:
+token is **not** a method argument — supply it with a `ClientHeadersFactory`. Each operation
+declares `throws ApiException`; the generated `ApiExceptionMapper` (`@Provider`,
+`ResponseExceptionMapper<ApiException>`) raises it on any status `>= 400`, carrying the raw
+`jakarta.ws.rs.core.Response`:
 
 ```java
 TimestampsApi api = RestClientBuilder.newBuilder()
         .base(URI.create("https://hashbin.net"))
         .register(new BearerClientHeadersFactory(token))   // omit for anonymous endpoints
-        .register(new HashbinErrorMapper())                // non-2xx -> ApiException(status, message)
+        .register(new ApiExceptionMapper())                // non-2xx -> ApiException(getResponse())
         .build(TimestampsApi.class);
 ```
 
-For CDI injection, register the factory once via `@RegisterProvider` (or a producer);
-anonymous endpoints (`health`, `verify`, `explore`, unattributed `stamp`) need no token.
+For CDI injection, register the factory once via `@RegisterProvider` (or a producer); the
+`@Provider` `ApiExceptionMapper` is auto-discovered. Anonymous endpoints (`health`, `verify`,
+`explore`, unattributed `stamp`) need no token.
 
 ## Why `library=microprofile`
 
@@ -87,13 +96,12 @@ dependencies into the models. `microprofile` yields clean Jackson POJOs + JAX-RS
 ```bash
 export JAVA_HOME=<a JDK 21>
 ./mvnw install -DskipTests      # build the service first (emits the spec), then generate + compile this
-./mvnw -pl hashbin-api test     # generated models/client + error-mapper + bearer + spec-bundling
+./mvnw -pl hashbin-api test     # generated models/client + bearer + spec-bundling
 ```
 
 Tests are plain JUnit (no MicroProfile runtime required): a reflection test asserting the
-generated API interfaces carry the expected operations and the OpenAPI docs are bundled on
-the classpath; the bearer factory's header injection (on/off); and the error mapper's
-status/`{"error":...}` parsing.
+generated API interfaces carry the expected operations, that the OpenAPI docs are bundled on
+the classpath, and the bearer factory's header injection (on/off).
 
 ## License
 

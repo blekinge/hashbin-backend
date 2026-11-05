@@ -42,8 +42,8 @@ List<TimestampPublicView> history = timestamps.apiVerifyGet("auto", sha256);
 ```
 
 The bearer token is supplied with `BearerClientHeadersFactory` (SmallRye filters
-`Authorization` from the generated parameters), and `HashbinErrorMapper` turns non-2xx
-responses into `ApiException`. See [`hashbin-api`](hashbin-api/README.md).
+`Authorization` from the generated parameters); non-2xx responses throw the generated
+`ApiException` via the generated `ApiExceptionMapper`. See [`hashbin-api`](hashbin-api/README.md).
 
 ## Build
 

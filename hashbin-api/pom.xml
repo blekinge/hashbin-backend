@@ -24,7 +24,6 @@
     <!-- OpenAPI generator wiring. -->
     <openapi-generator.version>7.24.0</openapi-generator.version>
     <openapi.spec.dir>${project.build.directory}/openapi</openapi.spec.dir>
-    <openapi.gen.dir>${project.build.directory}/generated-sources/openapi</openapi.gen.dir>
     <hashbin.api.package>net.hashbin.api</hashbin.api.package>
     <jackson.version>2.18.2</jackson.version>
     <!-- Jakarta / MicroProfile API versions the generated interfaces compile against
@@ -165,19 +164,28 @@
               <inputSpec>${openapi.spec.dir}/openapi.yaml</inputSpec>
               <generatorName>java</generatorName>
               <library>microprofile</library>
-              <output>${openapi.gen.dir}</output>
+              <output>.</output>
               <addCompileSourceRoot>true</addCompileSourceRoot>
               <verbose>false</verbose>
 
-              <!-- Generate the MicroProfile REST Client interfaces + the Jackson models.
-                   The HTTP client + HMAC verify still stay hand-written. -->
+              <!-- We generate into the project root (output=.) with sourceFolder pointed at
+                   target/generated-sources, and prune the scaffolding via the committed
+                   .openapi-generator-ignore (which lives at output=. = this module root). Its
+                   /* and /*.* patterns discard depth-1 entries (pom.xml, README.md, etc.)
+                   while the deeper generated sources under target/generated-sources/... survive.
+                   generateSupportingFiles is ON only so the root .openapi-generator-ignore is the
+                   single source of truth for what is kept; we keep just the models + *Api
+                   interfaces and discard the generated ApiException/ApiExceptionMapper/RFC3339*
+                   in favour of our own hand-written ApiException + HashbinErrorMapper (src/main). -->
+
+              <!-- Generate the MicroProfile REST Client interfaces + the Jackson models. -->
               <generateApis>true</generateApis>
               <generateApiTests>false</generateApiTests>
               <generateApiDocumentation>false</generateApiDocumentation>
               <generateModels>true</generateModels>
               <generateModelTests>false</generateModelTests>
               <generateModelDocumentation>false</generateModelDocumentation>
-              <generateSupportingFiles>false</generateSupportingFiles>
+              <generateSupportingFiles>true</generateSupportingFiles>
 
               <configOptions>
                 <configKey>hashbin</configKey>
@@ -192,7 +200,7 @@
                 <openApiNullable>false</openApiNullable>
                 <generateBuilders>true</generateBuilders>
                 <hideGenerationTimestamp>true</hideGenerationTimestamp>
-                <sourceFolder>src/main/java</sourceFolder>
+                <sourceFolder>target/generated-sources</sourceFolder>
                 <apiPackage>${hashbin.api.package}</apiPackage>
                 <modelPackage>${hashbin.api.package}.model</modelPackage>
                 <invokerPackage>${hashbin.api.package}</invokerPackage>

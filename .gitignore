@@ -3,6 +3,9 @@ target/
 !**/src/main/**/target/
 !**/src/test/**/target/
 
+# openapi-generator metadata (written next to the committed .openapi-generator-ignore)
+.openapi-generator/
+
 # Quarkus
 .quarkus/
 *.env

@@ -375,15 +375,17 @@ hashbin-quarkus/                      # -- the service module (all Quarkus lives
     Dockerfile.jvm / Dockerfile.native # hand-built (mvn -Dquarkus.container-image.build), module-dir context
   src/test/java/net/hashbin/          # @QuarkusTest suite (Dev Services Postgres)
 
-hashbin-api/                          # -- the client module (models + client GENERATED from the spec) --
+hashbin-api/                          # -- the client module (everything GENERATED from the spec) --
   pom.xml                             # openapi-generator (java/microprofile) + Jackson; bundles META-INF/openapi
+  .openapi-generator-ignore           # prunes the generator's scaffolding (keep only models + *Api + support)
   src/main/java/net/hashbin/api/
-    ApiException.java                 # hand-written: the error type the generated ops declare/throw
-    HashbinErrorMapper.java           # hand-written: non-2xx -> ApiException (status + {"error":...})
     auth/BearerClientHeadersFactory.java  # hand-written: adds Authorization: Bearer for the generated client
-    # model/* AND net.hashbin.api.{Timestamps,Auth,Health,Docs}Api are GENERATED at build time into
-    # target/generated-sources/openapi (not committed): Jackson POJOs + @RegisterRestClient interfaces.
-  src/test/java/net/hashbin/api/      # plain-JUnit: generated-API/spec/bearer/error-mapper tests
+    # EVERYTHING ELSE is GENERATED at build time into target/generated-sources (not committed):
+    # net.hashbin.api.model.* (Jackson POJOs) + net.hashbin.api.{Timestamps,Auth,Health,Docs}Api
+    # (@RegisterRestClient interfaces) + the stock supporting files (ApiException, ApiExceptionMapper,
+    # RFC3339* date helpers). The generated interfaces `throws ApiException` and the @Provider
+    # ApiExceptionMapper maps non-2xx to it, so no hand-written exception/mapper is needed.
+  src/test/java/net/hashbin/api/      # plain-JUnit: generated-API/spec/bearer reflection test
 ```
 
 ## License
