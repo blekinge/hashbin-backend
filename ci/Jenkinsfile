@@ -123,6 +123,13 @@ pipeline {
         buildDiscarder(logRotator(numToKeepStr: '5'))
     }
 
+    environment {
+        // Native image build/push is temporarily DISABLED so CI stays fast while the pipeline
+        // stabilises (the native compile is the slow, multi-minute stage). Flip to 'true' to
+        // re-enable stage 2. Tests still run against the postgres sidecar regardless.
+        BUILD_NATIVE = 'false'
+    }
+
     stages {
         stage('Build and test') {
             steps {
@@ -164,6 +171,7 @@ pipeline {
         }
 
         stage('Build and push native image') {
+            when { expression { return env.BUILD_NATIVE == 'true' } }
             steps {
                 container('docker') {
                     script {
@@ -211,7 +219,13 @@ pipeline {
 
     post {
         success {
-            echo "Published ${env.IMAGE_TAG}"
+            script {
+                if (env.IMAGE_TAG) {
+                    echo "Published ${env.IMAGE_TAG}"
+                } else {
+                    echo "Build + tests passed. Native image build skipped (BUILD_NATIVE=${env.BUILD_NATIVE})."
+                }
+            }
         }
     }
 }
