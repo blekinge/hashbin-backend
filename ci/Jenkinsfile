@@ -196,12 +196,24 @@ pipeline {
                         def imageVersion = "${env.PROJECT_VERSION}-${validBranchTag}-sha.${env.GIT_COMMIT}-build.${env.BUILD_NUMBER}"
                         env.IMAGE_TAG = "${harborName}/${harborLibrary}/${projectName}:${imageVersion}"
 
+                        // On the main branch (master or main), also publish THIS image under a moving
+                        // `latest` tag so consumers can pull the current build without knowing the
+                        // version. `env.LATEST_TAG` is always assigned (empty string off the main
+                        // branch) so the `set -u` shell steps below can reference it safely; the build
+                        // adds a second `--tag` and the push a second `docker push` only when it is set.
+                        def branch = (env.BRANCH_NAME
+                            ?: (env.GIT_BRANCH ?: '').replaceAll(/^(refs\/heads\/|origin\/)/, '')
+                            ?: 'dev').toLowerCase()
+                        def isMain = branch in ['main', 'master']
+                        env.LATEST_TAG = isMain ? "${harborName}/${harborLibrary}/${projectName}:latest" : ''
+
                         // Pick the image recipe from the flag. Both are source builds with a `final`
                         // stage; JVM is the fast default, native is the (slow) long-term target.
                         env.BUILD_DOCKERFILE = (env.BUILD_NATIVE == 'true') \
                             ? 'src/main/docker/Dockerfile.native-multi-stage' \
                             : 'src/main/docker/Dockerfile.jvm-multi-stage'
                         echo "Building and pushing ${env.IMAGE_TAG} (${env.BUILD_NATIVE == 'true' ? 'native' : 'JVM'} image from ${env.BUILD_DOCKERFILE})"
+                        if (isMain) echo "Main branch '${branch}': also tagging and pushing ${env.LATEST_TAG}"
                     }
 
                     // Build from source so the pushed image never depends on a locally built
@@ -213,6 +225,7 @@ pipeline {
                         docker build \
                           --target final \
                           --tag "$IMAGE_TAG" \
+                          ${LATEST_TAG:+--tag $LATEST_TAG} \
                           --file "$BUILD_DOCKERFILE" \
                           .
                     '''
@@ -224,6 +237,7 @@ pipeline {
                             printf '%s' "$PASSWORD" | docker login harbor.tools.nyx.kb.dk \
                               --username "$USERNAME" --password-stdin
                             docker push "$IMAGE_TAG"
+                            if [ -n "$LATEST_TAG" ]; then docker push "$LATEST_TAG"; fi
                         '''
                     }
                 }
@@ -233,7 +247,7 @@ pipeline {
 
     post {
         success {
-            echo "Published ${env.IMAGE_TAG}"
+            echo "Published ${env.IMAGE_TAG}${env.LATEST_TAG ? ' and ' + env.LATEST_TAG : ''}"
         }
     }
 }
