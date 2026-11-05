@@ -7,7 +7,8 @@ import java.security.MessageDigest;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
-import net.hashbin.api.model.TimestampRecord;
+import net.hashbin.api.model.TimestampPublicView;
+import net.hashbin.api.model.TimestampView;
 
 /**
  * The client side of hashbin.net's signature scheme, identical to the backend's
@@ -15,10 +16,11 @@ import net.hashbin.api.model.TimestampRecord;
  * lowercase hex.
  *
  * <p>The server signs each record and returns {@code server_signature}. A client
- * that holds the shared secret uses {@link #verify} to independently confirm the
- * record was produced by a legitimate server — the core trust property of the
- * service. This lives in the client library precisely because it is the part of
- * the contract an OpenAPI document cannot express.
+ * holding the shared secret uses {@link #verify} to confirm the record was produced
+ * by a legitimate server. This is hand-written precisely because it is the part of
+ * the contract the OpenAPI document — and therefore the generated models — cannot
+ * express. It reads the {@code created_at}/{@code hash_sha256}/{@code server_signature}
+ * off the <em>generated</em> model getters, so it keeps working as models regenerate.
  */
 public final class Signature {
 
@@ -34,12 +36,25 @@ public final class Signature {
         return hmacSha256Hex(secret, canonicalMessage(hashSha256, createdAtIso));
     }
 
-    /** Recomputes the signature for {@code record} and compares constant-time. */
-    public static boolean verify(String secret, TimestampRecord record) {
-        String expected = sign(secret, record.hashSha256, record.createdAt);
+    /** Recomputes the signature for the full record and compares constant-time. */
+    public static boolean verify(String secret, TimestampView record) {
+        return verify(secret, record.getHashSha256(), record.getCreatedAt(), record.getServerSignature());
+    }
+
+    /** Recomputes the signature for the public record and compares constant-time. */
+    public static boolean verify(String secret, TimestampPublicView record) {
+        return verify(secret, record.getHashSha256(), record.getCreatedAt(), record.getServerSignature());
+    }
+
+    /** Core check: recompute the HMAC over the canonical message and compare constant-time. */
+    public static boolean verify(String secret, String hashSha256, String createdAtIso, String serverSignature) {
+        if (secret == null || hashSha256 == null || createdAtIso == null || serverSignature == null) {
+            return false;
+        }
+        String expected = sign(secret, hashSha256, createdAtIso);
         return MessageDigest.isEqual(
                 expected.getBytes(StandardCharsets.UTF_8),
-                record.serverSignature.getBytes(StandardCharsets.UTF_8));
+                serverSignature.getBytes(StandardCharsets.UTF_8));
     }
 
     /** Pure HMAC-SHA256 over {@code secret}/{@code message}, lowercase hex. */

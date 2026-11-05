@@ -7,10 +7,11 @@ pages: same routes (`/api/stamp`, `/api/verify`, `/api/my-timestamps`,
 `/api/health`), same JSON (snake_case), same HMAC signature scheme.
 
 > **This is the service module of a Maven multi-module repo.** Everything
-> Quarkus lives here. The sibling `hashbin-api` module is a plain-Java client
-> (no Quarkus) that consumers depend on; the shared parent pom aggregates both.
-> See the [root README](../README.md) for the reactor and how to use `hashbin-api`
-> as a dependency. Commands below are shown for the module directory; from the
+> Quarkus lives here. The sibling `hashbin-api` module is a Java client whose models
+> are generated from this service's OpenAPI document (see below); the shared parent
+> pom aggregates both. See the [root README](../README.md) for the reactor and how to
+> use `hashbin-api` as a dependency. Commands below are shown for the module
+> directory; from the
 > repo root, add `-pl hashbin-quarkus` (e.g. `mvn -pl hashbin-quarkus quarkus:dev`).
 
 > Status: **Complete (Phases 1–7)** — a self-hosted Quarkus port of the hashbin.net
@@ -34,15 +35,17 @@ pages: same routes (`/api/stamp`, `/api/verify`, `/api/my-timestamps`,
 ## Ecosystem
 
 This service is one module of this repo; the sibling **`hashbin-api`** module is a
-plain-Java client (no Quarkus) that external JVM consumers depend on. The repo
-itself lives alongside two further sibling repos (separate repos, not a monorepo):
+Java client whose models are generated from this service's OpenAPI document (so they
+cannot drift). The repo itself lives alongside two further sibling repos (separate
+repos, not a monorepo):
 
 - **hashbin-quarkus** *(this module)* — the backend (Quarkus 3.40.1 / JDK 21). Dev/test
   DB via Quarkus Dev Services (throwaway Postgres through Testcontainers). A
   file-activated `web` Maven profile serves `../../hashbin-web/dist` same-origin. The
   native container-image build is wired (Docker extension + Mandrel container build).
-- **hashbin-api** *(sibling module)* — plain-Java client for the `/api` contract
-  (typed models, `HashbinClient`, and the HMAC verify scheme). No Quarkus dependency.
+- **hashbin-api** *(sibling module)* — Java client for the `/api` contract: models
+  generated from this service's spec + a hand-written `HashbinClient` and the HMAC
+  verify scheme. No Quarkus dependency.
 - **hashbin-web** — dependency-free static frontend (vanilla TypeScript + `tsc`; no
   Lovable/Supabase). `dist/` is git-ignored build output (run `npm run build`);
   `./build.sh` self-bootstraps the pinned Node; CI builds its nginx image from source.
@@ -117,17 +120,15 @@ artifact**:
 hashbin-quarkus-<version>-openapi.jar     # contains openapi.yaml + openapi.json at the root
 ```
 
-It is attached to the build and installed/deployed alongside the service jar, so API
-consumers and code generators can depend on the exact spec this service produced:
+It is attached to the build and **consumed in-reactor by the sibling
+[`hashbin-api`](../hashbin-api/README.md) module**, which unpacks it and generates its
+client models from it (so the client can never drift from the service). Because its
+only consumer is that module in this same reactor, the artifact is **not published to
+any Maven registry** — it is internal build plumbing. The `hashbin-api` jar (and the
+service image) are what get published for external use.
 
-```xml
-<dependency>
-  <groupId>net.hashbin</groupId>
-  <artifactId>hashbin-quarkus</artifactId>
-  <version>1.0.0-SNAPSHOT</version>
-  <classifier>openapi</classifier>
-  <type>jar</type>
-</dependency>
+```
+net.hashbin:hashbin-quarkus:jar:openapi   # unpacked by hashbin-api's maven-dependency-plugin
 ```
 
 ## Container image
@@ -374,16 +375,15 @@ hashbin-quarkus/                      # -- the service module (all Quarkus lives
     Dockerfile.jvm / Dockerfile.native # hand-built (mvn -Dquarkus.container-image.build), module-dir context
   src/test/java/net/hashbin/          # @QuarkusTest suite (Dev Services Postgres)
 
-hashbin-api/                          # -- the client module (plain Java, no Quarkus) --
-  pom.xml                             # Jackson + JUnit only
+hashbin-api/                          # -- the client module (models GENERATED from the spec) --
+  pom.xml                             # openapi-generator (java/microprofile, models only) + Jackson
   src/main/java/net/hashbin/api/
-    HashbinClient.java                # JDK HttpClient wrapper for the /api routes
-    StampRequest.java                 # POST /stamp body builder (snake_case, nulls omitted)
-    ApiException.java                 # status + {"error": ...} message
-    model/TimestampRecord.java        # response projection (full + public)
-    model/AuthResponse.java           # token + user payload
-    model/MeView.java                 # /auth/me payload
-    security/Signature.java           # HMAC sign/verify (the part OpenAPI can't express)
+    HashbinClient.java                # hand-written JDK HttpClient wrapper for the /api routes
+    ApiException.java                 # hand-written: status + {"error": ...} message
+    security/Signature.java           # hand-written: HMAC sign/verify (the part OpenAPI can't express)
+    # model/* and net.hashbin.api.model are GENERATED at build time into
+    # target/generated-sources/openapi (not committed): StampRequest, TimestampView,
+    # TimestampPublicView, AuthRequest, AuthResponse, MeView.
   src/test/java/net/hashbin/api/      # plain-JUnit: stub-server client test + HMAC vectors
 ```
 

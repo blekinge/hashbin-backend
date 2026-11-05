@@ -13,17 +13,39 @@
   <artifactId>hashbin-api</artifactId>
   <name>Hashbin API Client</name>
   <description>
-    Plain-Java client for the hashbin.net timestamping API: typed request/response models, an
-    HttpClient wrapper for the /api routes, and the HMAC scheme used to verify server signatures.
-    Depends only on Jackson — no Quarkus — so any JVM consumer can pin it as a versioned dependency.
+    Java client for the hashbin.net timestamping API, GENERATED at build time from the OpenAPI
+    document produced by the sibling hashbin-quarkus module (so it can never drift from the
+    service). Uses the OpenAPI "java/microprofile" generator: a MicroProfile REST Client interface
+    plus Jackson models. The HMAC signature verify (not expressible in OpenAPI) is hand-written on
+    top of the generated models.
   </description>
 
   <properties>
+    <!-- OpenAPI generator wiring. -->
+    <openapi-generator.version>7.24.0</openapi-generator.version>
+    <openapi.spec.dir>${project.build.directory}/openapi</openapi.spec.dir>
+    <openapi.gen.dir>${project.build.directory}/generated-sources/openapi</openapi.gen.dir>
+    <hashbin.api.package>net.hashbin.api</hashbin.api.package>
     <jackson.version>2.18.2</jackson.version>
   </properties>
 
   <dependencies>
-    <!-- JSON binding for the wire contract (snake_case). Plain Jackson, not quarkus-jackson. -->
+    <!--
+      Build-order + spec carrier: depending on the service's generated OpenAPI artifact makes Maven
+      build hashbin-quarkus first (it runs the quarkus build goal that writes the spec + -openapi.jar)
+      and hands the artifact to maven-dependency-plugin to unpack. Provided + content-less (yaml
+      only) => nothing on this library's runtime classpath and never published. Stays in-reactor.
+    -->
+    <dependency>
+      <groupId>net.hashbin</groupId>
+      <artifactId>hashbin-quarkus</artifactId>
+      <version>${project.version}</version>
+      <classifier>openapi</classifier>
+      <type>jar</type>
+      <scope>provided</scope>
+    </dependency>
+
+    <!-- Jackson: the generated models' serialization annotations + the hand-written client. -->
     <dependency>
       <groupId>com.fasterxml.jackson.core</groupId>
       <artifactId>jackson-databind</artifactId>
@@ -45,6 +67,89 @@
       </plugin>
       <plugin>
         <artifactId>maven-surefire-plugin</artifactId>
+      </plugin>
+
+      <!-- 1) Unpack the service's OpenAPI document out of the -openapi.jar carrier. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-dependency-plugin</artifactId>
+        <version>3.8.1</version>
+        <executions>
+          <execution>
+            <id>unpack-openapi</id>
+            <phase>generate-sources</phase>
+            <goals>
+              <goal>unpack</goal>
+            </goals>
+            <configuration>
+              <artifactItems>
+                <artifactItem>
+                  <groupId>net.hashbin</groupId>
+                  <artifactId>hashbin-quarkus</artifactId>
+                  <version>${project.version}</version>
+                  <classifier>openapi</classifier>
+                  <type>jar</type>
+                  <outputDirectory>${openapi.spec.dir}</outputDirectory>
+                  <includes>openapi.yaml</includes>
+                </artifactItem>
+              </artifactItems>
+              <overWriteReleases>true</overWriteReleases>
+              <overWriteSnapshots>true</overWriteSnapshots>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!-- 2) Generate the MicroProfile REST Client interface + Jackson models from that spec. -->
+      <plugin>
+        <groupId>org.openapitools</groupId>
+        <artifactId>openapi-generator-maven-plugin</artifactId>
+        <version>${openapi-generator.version}</version>
+        <executions>
+          <execution>
+            <id>generate-client</id>
+            <phase>generate-sources</phase>
+            <goals>
+              <goal>generate</goal>
+            </goals>
+            <configuration>
+              <inputSpec>${openapi.spec.dir}/openapi.yaml</inputSpec>
+              <generatorName>java</generatorName>
+              <library>microprofile</library>
+              <output>${openapi.gen.dir}</output>
+              <addCompileSourceRoot>true</addCompileSourceRoot>
+              <verbose>false</verbose>
+
+              <!-- Models only: the HTTP client + HMAC verify stay hand-written in this module. -->
+              <generateApis>false</generateApis>
+              <generateApiTests>false</generateApiTests>
+              <generateApiDocumentation>false</generateApiDocumentation>
+              <generateModels>true</generateModels>
+              <generateModelTests>false</generateModelTests>
+              <generateModelDocumentation>false</generateModelDocumentation>
+              <generateSupportingFiles>false</generateSupportingFiles>
+
+              <configOptions>
+                <configKey>hashbin</configKey>
+                <microprofileRestClientVersion>3.0</microprofileRestClientVersion>
+                <rootJavaEEPackage>jakarta</rootJavaEEPackage>
+                <useJakartaEe>true</useJakartaEe>
+                <microprofileRegisterExceptionMapper>false</microprofileRegisterExceptionMapper>
+                <serializationLibrary>jackson</serializationLibrary>
+                <microprofileMutiny>false</microprofileMutiny>
+                <withXml>false</withXml>
+                <useBeanValidation>false</useBeanValidation>
+                <openApiNullable>false</openApiNullable>
+                <generateBuilders>true</generateBuilders>
+                <hideGenerationTimestamp>true</hideGenerationTimestamp>
+                <sourceFolder>src/main/java</sourceFolder>
+                <apiPackage>${hashbin.api.package}</apiPackage>
+                <modelPackage>${hashbin.api.package}.model</modelPackage>
+                <invokerPackage>${hashbin.api.package}</invokerPackage>
+              </configOptions>
+            </configuration>
+          </execution>
+        </executions>
       </plugin>
     </plugins>
   </build>

@@ -7,16 +7,19 @@ independent build units:
 | Module | What it is | Build |
 |---|---|---|
 | **`hashbin-quarkus`** | The service / Docker image. **All Quarkus lives here.** | Quarkus 3.40.1 / JDK 21 |
-| **`hashbin-api`** | A **plain-Java client** for the `/api` contract. No Quarkus. | JDK 21, Jackson only |
+| **`hashbin-api`** | A Java client whose **models are generated from the service's OpenAPI**; hand-written `HashbinClient` + HMAC on top. | JDK 21, openapi-generator + Jackson |
 
 A parent POM (`hashbin-parent`, `packaging=pom`) aggregates the two and holds only
 shared, Quarkus-free build config.
 
 ## Why split into these two modules
 
-`hashbin-api` exists so **local JVM clients can depend on the API as a plain Maven
-artifact** and tooling (Dependabot/Renovate) can bump that version to surface a
-backend **contract change** as a *compile* error rather than a runtime surprise:
+`hashbin-api`'s request/response **models are regenerated on every build from the
+OpenAPI document the `hashbin-quarkus` module emits** (in-reactor — the spec artifact
+never leaves the repo). So the client can never drift from the service: a response-shape
+change becomes a compile error downstream automatically. The `hashbin-api` **jar** is
+then published so external JVM clients (e.g. the separate `hashbin-cli` repo) can depend
+on it as a versioned Maven artifact:
 
 ```xml
 <dependency>
@@ -30,20 +33,19 @@ backend **contract change** as a *compile* error rather than a runtime surprise:
 HashbinClient client = new HashbinClient("https://hashbin.net/api");
 
 // hash a file yourself (the client is contract-only, no file-IO concern), then stamp:
-TimestampRecord ts = client.stamp(
-        StampRequest.builder().sha256(sha256).fileSize(size).fileName("report.pdf").build(),
+TimestampView ts = client.stamp(
+        new StampRequest().hashSha256(sha256).fileSize(size).fileName("report.pdf"),
         token /* or null for anonymous */);
 
 // independently confirm the record was signed by a legitimate server:
 boolean authentic = Signature.verify(System.getenv("HASHBIN_HMAC_SECRET"), ts);
 
-List<TimestampRecord> history = client.verify(sha256, "auto");
+List<TimestampPublicView> history = client.verify(sha256, "auto");
 ```
 
-The client couples to the backend by its **wire contract** only (routes, snake_case
-JSON, `{"error":...}` errors) plus the **HMAC verification** scheme — the one part
-of the contract an OpenAPI document cannot express, which is why the client is
-hand-written rather than code-generated from the spec. See
+The generated models carry the wire contract (routes are in the spec; snake_case JSON);
+the HTTP client and the **HMAC verification** are hand-written — the signature scheme is
+the one part of the contract an OpenAPI document cannot express. See
 [`hashbin-api`](hashbin-api/README.md).
 
 ## Build
@@ -78,7 +80,7 @@ read artifacts from `hashbin-quarkus/target/...`. See the service README.
 ## Ecosystem
 
 - **hashbin-quarkus** *(this repo, `hashbin-quarkus` module)* — the backend.
-- **hashbin-api** *(this repo, `hashbin-api` module)* — the plain-Java client.
+- **hashbin-api** *(this repo, `hashbin-api` module)* — Java client (models generated from the spec).
 - **hashbin-cli** — standalone Quarkus Picocli command line client. *(separate repo)*
 - **hashbin-web** — dependency-free static frontend. *(separate repo)*
 - **hashbin-deploy** — Kubernetes / Kustomize manifests. *(separate repo)*

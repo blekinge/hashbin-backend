@@ -1,7 +1,5 @@
 package net.hashbin.rest.dto;
 
-import java.util.UUID;
-
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 
@@ -21,7 +19,7 @@ import net.hashbin.model.Timestamp;
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 public class TimestampPublicView {
 
-    public UUID id;
+    public String id;
     public String hashSha256;
     public String hashMd5;
     public String hashSha1;
@@ -32,7 +30,7 @@ public class TimestampPublicView {
 
     public static TimestampPublicView from(Timestamp t) {
         TimestampPublicView v = new TimestampPublicView();
-        v.id = t.id;
+        v.id = t.id.toString();
         v.hashSha256 = t.hashSha256;
         v.hashMd5 = t.hashMd5;
         v.hashSha1 = t.hashSha1;

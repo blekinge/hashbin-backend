@@ -16,12 +16,12 @@ import io.quarkus.runtime.annotations.RegisterForReflection;
 @RegisterForReflection
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 public class MeView {
-    public UUID userId;
+    public String userId;
     public String email;
 
     public static MeView of(UUID userId, String email) {
         MeView m = new MeView();
-        m.userId = userId;
+        m.userId = userId == null ? null : userId.toString();
         m.email = email;
         return m;
     }

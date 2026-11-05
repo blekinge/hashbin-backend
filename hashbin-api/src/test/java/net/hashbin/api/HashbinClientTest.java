@@ -15,19 +15,23 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
-import net.hashbin.api.model.TimestampRecord;
+import net.hashbin.api.model.TimestampPublicView;
+import net.hashbin.api.model.TimestampView;
+import net.hashbin.api.model.StampRequest;
 import net.hashbin.api.security.Signature;
 
 /**
- * Exercises {@link HashbinClient} against a throwaway JDK {@link HttpServer}
- * that speaks the hashbin wire contract. No live backend, no container: it
- * proves request binding, snake_case response parsing, the {@code {"error":...}}
- * → {@link ApiException} mapping, and that a record the stub signs verifies with
- * the shared secret.
+ * Drives the hand-written {@link HashbinClient} against a throwaway JDK server that
+ * speaks the hashbin wire contract, using the <em>generated</em> models. Proves:
+ * the generated {@code StampRequest} serializes to the snake_case body the server
+ * expects, responses bind to the generated models, the {@code {"error":...}} →
+ * {@link ApiException} mapping works, and a stub-signed record verifies with the
+ * shared secret. No live backend / container required.
  */
 class HashbinClientTest {
 
@@ -66,29 +70,29 @@ class HashbinClientTest {
     }
 
     @Test
-    void verifyParsesPublicProjectionAndVerifiesSignature() {
-        List<TimestampRecord> found = client.verify("b".repeat(64), "auto");
+    void verifyBindsPublicProjectionAndVerifiesSignature() {
+        List<TimestampPublicView> found = client.verify("b".repeat(64), "auto");
         assertEquals(1, found.size());
-        TimestampRecord r = found.get(0);
-        assertEquals("b".repeat(64), r.hashSha256);
-        assertEquals(123L, r.fileSize);
+        TimestampPublicView r = found.get(0);
+        assertEquals("b".repeat(64), r.getHashSha256());
+        assertEquals(123L, r.getFileSize());
         assertTrue(Signature.verify(SECRET, r), "stub signature should verify with the shared secret");
     }
 
     @Test
     void stampSendsSnakeCaseBodyAndParsesSignedResponse() {
-        StampRequest req = StampRequest.builder()
-                .sha256("f".repeat(64)).md5("a".repeat(32)).fileSize(42).fileName("x.txt").build();
+        StampRequest req = new StampRequest()
+                .hashSha256("f".repeat(64)).hashMd5("a".repeat(32)).fileSize(42L).fileName("x.txt");
 
-        TimestampRecord created = client.stamp(req, null);
+        TimestampView created = client.stamp(req, null);
 
-        assertEquals("f".repeat(64), created.hashSha256);
-        assertEquals("x.txt", created.fileName);
+        assertEquals("f".repeat(64), created.getHashSha256());
+        assertEquals("x.txt", created.getFileName());
         assertTrue(Signature.verify(SECRET, created));
     }
 
     @Test
-    void nonJsonErrorStatusBecomesApiExceptionWithMessage() {
+    void non2xxStatusBecomesApiExceptionWithServerMessage() {
         ApiException ex = assertThrows(ApiException.class, () -> client.explore(3, 0));
         assertEquals(500, ex.status());
         assertEquals("database unavailable", ex.getMessage());
@@ -102,15 +106,6 @@ class HashbinClientTest {
         assertFalse(ex.getMessage().isEmpty());
     }
 
-    @Test
-    void stampRequestOmitsNullOptionals() {
-        var body = StampRequest.builder().sha256("c".repeat(64)).fileSize(0).build().toBody();
-        assertTrue(body.containsKey("hash_sha256"));
-        assertTrue(body.containsKey("file_size"));
-        assertFalse(body.containsKey("hash_md5"));
-        assertFalse(body.containsKey("file_name"));
-    }
-
     // ── stub handlers ───────────────────────────────────────────────────────
 
     private void verify(HttpExchange ex) throws java.io.IOException {
@@ -122,11 +117,17 @@ class HashbinClientTest {
     }
 
     private void stamp(HttpExchange ex) throws java.io.IOException {
-        var req = M.readTree(new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+        JsonNode req = M.readTree(new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+        // The stub echoes what the real server validates: the snake_case keys.
         String sha = req.path("hash_sha256").asText("");
+        if (!sha.matches("^[a-f0-9]{64}$")) {
+            respond(ex, 400, "{\"error\":\"Invalid SHA-256 hash\"}");
+            return;
+        }
+        String fileName = req.hasNonNull("file_name") ? "\"" + req.path("file_name").asText() + "\"" : "null";
         String json = "{\"id\":\"22222222-2222-2222-2222-222222222222\",\"hash_sha256\":\"" + sha
                 + "\",\"file_size\":" + req.path("file_size").asLong()
-                + ",\"file_name\":" + (req.has("file_name") ? "\"" + req.path("file_name").asText() + "\"" : "null")
+                + ",\"file_name\":" + fileName
                 + ",\"created_at\":\"" + CREATED_AT
                 + "\",\"server_signature\":\"" + Signature.sign(SECRET, sha, CREATED_AT) + "\"}";
         respond(ex, 200, json);

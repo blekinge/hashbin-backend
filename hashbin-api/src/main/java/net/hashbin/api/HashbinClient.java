@@ -17,26 +17,26 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import net.hashbin.api.model.AuthRequest;
 import net.hashbin.api.model.AuthResponse;
 import net.hashbin.api.model.MeView;
-import net.hashbin.api.model.TimestampRecord;
+import net.hashbin.api.model.StampRequest;
+import net.hashbin.api.model.TimestampPublicView;
+import net.hashbin.api.model.TimestampView;
 
 /**
- * A dependency-light Java client for the hashbin.net REST API. It is the single
- * point of coupling to the backend, and that coupling is by <em>contract</em>
- * only: routes under {@code /api}, snake_case JSON, optional {@code Bearer}
- * auth, and {@code {"error": "..."}} failures. There is no compile-time
- * dependency on the server — which is what lets any consumer pin this artifact
- * and have a backend contract change surface as a compile error rather than a
- * runtime surprise.
+ * Hand-written HTTP client for the hashbin REST API, sitting on top of the
+ * <em>generated</em> model classes in {@code net.hashbin.api.model}. The models are
+ * regenerated every build from the service's OpenAPI document (so they cannot
+ * drift); this transport layer is intentionally hand-written because the
+ * signature-verification scheme is not expressible in OpenAPI and because a small
+ * JDK-{@link HttpClient} wrapper keeps the library dependency-free.
  *
- * <p>Uses the JDK {@link HttpClient} and plain Jackson. Construct one per base
- * URL (it is thread-safe and reuses connections):
+ * <p>One instance is thread-safe and reuses connections. Build it per base URL:
  *
  * <pre>{@code
  * HashbinClient client = new HashbinClient("https://hashbin.net/api");
- * TimestampRecord ts = client.stamp(
- *         StampRequest.builder().sha256(sha).fileSize(size).build(), token);
+ * TimestampView ts = client.stamp(new StampRequest().hashSha256(sha).fileSize(size), token);
  * boolean authentic = Signature.verify(System.getenv("HASHBIN_HMAC_SECRET"), ts);
  * }</pre>
  */
@@ -64,28 +64,28 @@ public class HashbinClient {
         return node != null && "ok".equals(node.path("status").asText(null));
     }
 
-    /** POST /stamp → the created timestamp record. Pass {@code null} token for anonymous. */
-    public TimestampRecord stamp(StampRequest request, String token) {
-        return convert(exchange("POST", "/stamp", null, request.toBody(), token), TimestampRecord.class);
+    /** POST /stamp → the created record. Pass {@code null} token for an anonymous stamp. */
+    public TimestampView stamp(StampRequest request, String token) {
+        return convert(exchange("POST", "/stamp", null, request, token), TimestampView.class);
     }
 
     /** GET /verify?hash=…&algorithm=… → matching records (oldest first). */
-    public List<TimestampRecord> verify(String hash, String algorithm) {
+    public List<TimestampPublicView> verify(String hash, String algorithm) {
         Map<String, String> query = new LinkedHashMap<>();
         query.put("hash", hash);
         if (algorithm != null && !algorithm.isBlank() && !"auto".equalsIgnoreCase(algorithm)) {
             query.put("algorithm", algorithm);
         }
-        return records(exchange("GET", "/verify", query, null, null));
+        return publicRecords(exchange("GET", "/verify", query, null, null));
     }
 
     /** GET /my-timestamps → the caller's records (token required). */
-    public List<TimestampRecord> myTimestamps(String token) {
-        return records(exchange("GET", "/my-timestamps", null, null, token));
+    public List<TimestampView> myTimestamps(String token) {
+        return fullRecords(exchange("GET", "/my-timestamps", null, null, token));
     }
 
     /** GET /explore?limit=…&offset=… → recent public records. */
-    public List<TimestampRecord> explore(Integer limit, Integer offset) {
+    public List<TimestampPublicView> explore(Integer limit, Integer offset) {
         Map<String, String> query = new LinkedHashMap<>();
         if (limit != null) {
             query.put("limit", limit.toString());
@@ -93,7 +93,7 @@ public class HashbinClient {
         if (offset != null) {
             query.put("offset", offset.toString());
         }
-        return records(exchange("GET", "/explore", query, null, null));
+        return publicRecords(exchange("GET", "/explore", query, null, null));
     }
 
     /** POST /auth/register → token + profile. */
@@ -115,15 +115,11 @@ public class HashbinClient {
 
     // ── Plumbing ────────────────────────────────────────────────────────────
 
-    private static Map<String, Object> credentials(String email, String password) {
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("email", email);
-        body.put("password", password);
-        return body;
+    private static AuthRequest credentials(String email, String password) {
+        return new AuthRequest().email(email).password(password);
     }
 
-    private JsonNode exchange(String method, String path, Map<String, String> query,
-            Map<String, Object> body, String token) {
+    private JsonNode exchange(String method, String path, Map<String, String> query, Object body, String token) {
         URI uri = URI.create(apiBase + path + queryString(query));
 
         HttpRequest.Builder builder = HttpRequest.newBuilder(uri)
@@ -169,7 +165,7 @@ public class HashbinClient {
         }
     }
 
-    private String writeJson(Map<String, Object> body) {
+    private String writeJson(Object body) {
         try {
             return MAPPER.writeValueAsString(body == null ? Map.of() : body);
         } catch (IOException e) {
@@ -185,10 +181,19 @@ public class HashbinClient {
         }
     }
 
-    private List<TimestampRecord> records(JsonNode node) {
+    private List<TimestampView> fullRecords(JsonNode node) {
+        return convertList(node, new TypeReference<List<TimestampView>>() {
+        });
+    }
+
+    private List<TimestampPublicView> publicRecords(JsonNode node) {
+        return convertList(node, new TypeReference<List<TimestampPublicView>>() {
+        });
+    }
+
+    private <T> List<T> convertList(JsonNode node, TypeReference<List<T>> type) {
         try {
-            return MAPPER.convertValue(node, new TypeReference<List<TimestampRecord>>() {
-            });
+            return MAPPER.convertValue(node, type);
         } catch (IllegalArgumentException e) {
             throw new ApiException(0, "Unexpected response shape: " + e.getMessage());
         }

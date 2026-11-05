@@ -6,12 +6,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
 
-import net.hashbin.api.model.TimestampRecord;
+import net.hashbin.api.model.TimestampView;
 
 /**
- * Pins the HMAC to an authoritative, independent source (RFC 4231 test case 2)
- * so the client and the backend's HmacSigner cannot silently diverge, and
- * exercises the verify path the CLI/library uses.
+ * Pins the HMAC to an authoritative, independent source (RFC 4231 test case 2) so
+ * the client and the backend's HmacSigner cannot silently diverge, and exercises
+ * the verify path over the <em>generated</em> model getters.
  */
 class SignatureTest {
 
@@ -34,24 +34,23 @@ class SignatureTest {
 
     @Test
     void verifyAcceptsSignatureTheServerWouldProduce() {
-        TimestampRecord r = record(SECRET);
-        assertTrue(Signature.verify(SECRET, r));
+        assertTrue(Signature.verify(SECRET, record(SECRET)));
     }
 
     @Test
     void verifyRejectsTamperingAndWrongSecret() {
-        TimestampRecord tampered = record(SECRET);
-        tampered.createdAt = "2020-01-01T00:00:00.000Z";
+        TimestampView tampered = record(SECRET);
+        tampered.setCreatedAt("2020-01-01T00:00:00.000Z");
         assertFalse(Signature.verify(SECRET, tampered));
 
         assertFalse(Signature.verify("other-secret", record(SECRET)));
     }
 
-    private static TimestampRecord record(String signingSecret) {
-        TimestampRecord r = new TimestampRecord();
-        r.hashSha256 = "a".repeat(64);
-        r.createdAt = "2026-11-05T08:17:11.717Z";
-        r.serverSignature = Signature.sign(signingSecret, r.hashSha256, r.createdAt);
+    private static TimestampView record(String signingSecret) {
+        TimestampView r = new TimestampView();
+        r.setHashSha256("a".repeat(64));
+        r.setCreatedAt("2026-11-05T08:17:11.717Z");
+        r.setServerSignature(Signature.sign(signingSecret, r.getHashSha256(), r.getCreatedAt()));
         return r;
     }
 }

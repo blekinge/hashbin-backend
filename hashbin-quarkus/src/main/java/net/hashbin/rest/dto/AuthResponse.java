@@ -21,14 +21,14 @@ public class AuthResponse {
     public String token;
     public String tokenType = "Bearer";
     public long expiresIn;
-    public UUID userId;
+    public String userId;
     public String email;
 
     public static AuthResponse of(String token, UUID userId, String email, long expiresIn) {
         AuthResponse r = new AuthResponse();
         r.token = token;
         r.expiresIn = expiresIn;
-        r.userId = userId;
+        r.userId = userId == null ? null : userId.toString();
         r.email = email;
         return r;
     }
