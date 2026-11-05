@@ -28,7 +28,8 @@ hashbin-api:
   hand-written
      - net.hashbin.api.security.Signature             (HMAC sign/verify)
      - net.hashbin.api.auth.BearerClientHeadersFactory (adds Authorization: Bearer …)
-     - net.hashbin.api.ApiException                    (declared error type of the generated ops)
+     - net.hashbin.api.ApiException                    (the error the generated ops declare/throw)
+     - net.hashbin.api.HashbinErrorMapper              (maps non-2xx -> ApiException)
   bundled into the jar: META-INF/openapi/{openapi.yaml,openapi.json}
 ```
 
@@ -69,6 +70,7 @@ is **not** a method argument. Supply it with a `ClientHeadersFactory`:
 TimestampsApi api = RestClientBuilder.newBuilder()
         .base(URI.create("https://hashbin.net"))
         .register(new BearerClientHeadersFactory(token))   // omit for anonymous endpoints
+        .register(new HashbinErrorMapper())                // non-2xx -> ApiException
         .build(TimestampsApi.class);
 ```
 
