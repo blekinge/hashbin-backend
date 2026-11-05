@@ -1,25 +1,26 @@
 // Self-contained Jenkins pipeline for the hashbin-quarkus backend. No shared-library calls on
 // purpose: the org's `DockerfileBuild` can't run this project's tests and `DinDBuild` can't push
-// its image (see the "why" in docs/HANDOFF.md). Everything those two did is done here, in one run:
-// build + the full test suite, then a **native** container image pushed to the org Harbor.
+// its image (see the "why" in docs/HANDOFF.md). This one run builds, tests, and pushes a **native**
+// container image to the org Harbor.
 //
 // Why `ci/Jenkinsfile` and not the repository root: the org runs two Jenkins controllers that find
 // pipelines by *path* — the legacy one reads `Jenkinsfile` in the root, the current one
 // `ci/Jenkinsfile`. Sitting under `ci/` means only the current controller builds this repo and
 // posts the PR commit status, so a pull request is gated by exactly one real build.
 //
-// What each stage needs from the agent, and why this is one pod with two containers:
-//   * The test suite is `@QuarkusTest` with no JDBC URL, so Quarkus **Dev Services** brings up an
-//     ephemeral Postgres through **Testcontainers** — which needs a Docker daemon. (docs/HANDOFF.md)
-//   * The **native** image is produced by a `docker build` of a multi-stage recipe whose builder
-//     stage is the Mandrel/JDK-21 image, so `native-image` runs inside that stage — no nested
-//     container build, no GraalVM on the agent.
-// So: a `docker:dind-rootless` sidecar provides the Docker daemon (reachable at
-// tcp://localhost:2376 over TLS), the `jdk` container runs `./mvnw` (Testcontainers talks to the
-// daemon over the wire, so it needs no Docker CLI), and the `docker` container runs the `docker
-// build`/`push`. All containers share the Jenkins workspace volume, so the build context is the
-// checked-out source. This mirrors the pod `DinDBuild` uses; the Harbor naming and the
-// `jenkins-harbor` credential mirror what `DockerfileBuild` uses.
+// Pod layout (three containers) and why:
+//   * Stage 1 (tests) deliberately does NOT go through Testcontainers. The suite uses Quarkus Dev
+//     Services (no JDBC URL => Testcontainers starts Postgres in a container), but docker-java in
+//     Testcontainers 1.20.6 negotiates Docker API v1.32, which modern daemons reject ("minimum
+//     supported API version is 1.40") and DOCKER_API_VERSION is ignored by that client (see
+//     docs/HANDOFF.md — it is why local dev uses Podman). So the pod runs a plain `postgres`
+//     sidecar and the build points its datasource at it, bypassing Dev Services entirely.
+//   * Stage 2 builds the **native** image with `docker build` of a multi-stage recipe whose builder
+//     stage is Mandrel/JDK-21 (native-image runs there — no GraalVM on the agent). That needs a
+//     Docker daemon, so a `docker:dind-rootless` sidecar stays; the docker CLI / BuildKit it drives
+//     speak a modern API, so the version problem above does not apply to the image build.
+// All containers share the Jenkins workspace volume. The Harbor naming + `jenkins-harbor`
+// credential mirror `DockerfileBuild`.
 
 pipeline {
     agent {
@@ -29,49 +30,69 @@ pipeline {
                 kind: Pod
                 spec:
                   containers:
-                  # jdk: runs ./mvnw — compile + the Dev Services / Testcontainers test suite.
+                  # jdk: runs ./mvnw — compile + the test suite, against the postgres sidecar.
                   - name: jdk
                     image: eclipse-temurin:21-jdk-ubi9-minimal
                     command: [cat]
                     tty: true
                     env:
-                    # Point Testcontainers at the dind sidecar. Ryuk (the resource-reaper container)
-                    # is disabled here, as Testcontainers cannot always reach it across the socket.
-                    - name: DOCKER_HOST
-                      value: tcp://localhost:2376
-                    - name: DOCKER_CERT_PATH
-                      value: /docker-certs/client
-                    - name: DOCKER_TLS_VERIFY
-                      value: "1"
-                    - name: TESTCONTAINERS_RYUK_DISABLED
-                      value: "true"
+                    # Test against the `postgres` sidecar instead of Dev Services/Testcontainers (see
+                    # header: docker-java 1.20.6's API version is rejected by modern daemons). A set
+                    # JDBC URL disables Dev Services for the datasource; Flyway migrates it at start.
+                    - name: QUARKUS_DATASOURCE_JDBC_URL
+                      value: jdbc:postgresql://localhost:5432/hashbin
+                    - name: QUARKUS_DATASOURCE_USERNAME
+                      value: hashbin
+                    - name: QUARKUS_DATASOURCE_PASSWORD
+                      value: hashbin
+                    - name: QUARKUS_DATASOURCE_DEVSERVICES_ENABLED
+                      value: "false"
                     resources:
                       requests: { memory: "1Gi" }
                       limits:   { memory: "4Gi" }
                     volumeMounts:
-                    - name: docker-certs
-                      mountPath: /docker-certs/client
-                      subPath: client
-                      readOnly: true
-                  # docker: the daemon the tests drive, and the client that builds+pushes the image.
-                  # The native build (Mandrel) runs a docker-in-docker build, so this is where the
-                  # memory-heavy compilation actually happens — give it room.
+                    - name: pgdata
+                      mountPath: /var/lib/postgresql/data
+                  # postgres: the throwaway database the tests run against.
+                  - name: postgres
+                    image: docker.io/library/postgres:16-alpine
+                    env:
+                    - name: POSTGRES_USER
+                      value: hashbin
+                    - name: POSTGRES_PASSWORD
+                      value: hashbin
+                    - name: POSTGRES_DB
+                      value: hashbin
+                    - name: PGDATA
+                      value: /var/lib/postgresql/data/pgdata
+                    # Gate pod readiness on the DB accepting connections, so the test build never
+                    # races Postgres startup.
+                    readinessProbe:
+                      exec:
+                        command: ["pg_isready", "-U", "hashbin", "-d", "hashbin"]
+                      initialDelaySeconds: 3
+                      periodSeconds: 3
+                      timeoutSeconds: 3
+                      failureThreshold: 40
+                    resources:
+                      requests: { memory: "256Mi" }
+                      limits:   { memory: "1Gi" }
+                    volumeMounts:
+                    - name: pgdata
+                      mountPath: /var/lib/postgresql/data
+                  # docker: the daemon that builds + pushes the native image (stage 2 only). Rootless
+                  # dind is privileged-capable; the CLI here uses its own local unix socket (no
+                  # DOCKER_HOST override => no HTTP-to-TLS mismatch).
                   - name: docker
                     image: docker:dind-rootless
                     tty: true
                     securityContext:
                       privileged: true
-                    env:
-                    - name: DOCKER_TLS_CERTDIR
-                      value: /docker-certs
                     resources:
                       requests: { memory: "4Gi" }
                       limits:   { memory: "8Gi" }
-                    volumeMounts:
-                    - name: docker-certs
-                      mountPath: /docker-certs
                   volumes:
-                  - name: docker-certs
+                  - name: pgdata
                     emptyDir: {}
                 """
             retries 2
@@ -91,7 +112,7 @@ pipeline {
                     withMaven() {
                         // The wrapper downloads Maven 3.9.16 and builds on the image's JDK 21 (the
                         // only JDK Quarkus 3.20's Hibernate build accepts). -PallTests runs the full
-                        // suite; Dev Services starts Postgres on the sidecar daemon.
+                        // suite; the datasource env above points it at the postgres sidecar.
                         sh './mvnw --batch-mode --no-transfer-progress -PallTests clean install'
 
                         // Capture the version for the image tag now, while we have the wrapper and
@@ -132,28 +153,18 @@ pipeline {
                         echo "Building and pushing ${env.IMAGE_TAG}"
                     }
 
-                    // withMaven supplies $MVN_SETTINGS (the org settings.xml). Pass it as an optional
-                    // BuildKit secret so the recipe resolves through the org Nexus if MVN_SETTINGS is
-                    // reachable from this container; when it is not, the build still succeeds because
-                    // every dependency of this project is public (Maven Central). The recipe's secret
-                    // mount is optional, so omitting the flag never fails the build.
-                    withMaven() {
-                        sh '''
-                            set -eu
-                            export DOCKER_BUILDKIT=1
-                            SECRET=""
-                            if [ -n "${MVN_SETTINGS:-}" ] && [ -f "${MVN_SETTINGS}" ]; then
-                              SECRET="--secret id=settings.xml,src=${MVN_SETTINGS}"
-                            fi
-                            # shellcheck disable=SC2086
-                            docker build \
-                              ${SECRET} \
-                              --target final \
-                              --tag "$IMAGE_TAG" \
-                              --file src/main/docker/Dockerfile.native-multi-stage \
-                              .
-                        '''
-                    }
+                    // Build from source. DOCKER_BUILDKIT=1 honours `# syntax=docker/dockerfile:1`
+                    // and enables the modern builder. The native binary compiles inside the Mandrel
+                    // builder stage, so no GraalVM and no nested container build.
+                    sh '''
+                        set -eu
+                        export DOCKER_BUILDKIT=1
+                        docker build \
+                          --target final \
+                          --tag "$IMAGE_TAG" \
+                          --file src/main/docker/Dockerfile.native-multi-stage \
+                          .
+                    '''
 
                     withCredentials([usernamePassword(credentialsId: 'jenkins-harbor',
                                                       usernameVariable: 'USERNAME',

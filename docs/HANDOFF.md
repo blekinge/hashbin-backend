@@ -151,32 +151,39 @@ ephemeral Dev Services DB (no DB creds to manage), but the dev HMAC/JWT secrets 
   pipelines by path; `ci/Jenkinsfile` is the current controller's Script Path). It writes the
   whole pipeline inline rather than calling the `jenkins-shared` `Platform` lib.
 - **Why inline, not `DockerfileBuild` (xipax) or `DinDBuild`:** neither library does both jobs this
-  project needs. `DockerfileBuild` drives a 5-stage Dockerfile and runs `mvn verify` *inside* a
-  BuildKit image build → **no Docker daemon for Testcontainers**, so the Dev Services tests can't
-  start Postgres. `DinDBuild` runs the tests with a `docker:dind-rootless` sidecar but only
-  publishes the **jar to Nexus**, never an image. So `ci/Jenkinsfile` does both in one pod.
-- **Agent:** a Kubernetes pod with two containers — `jdk` (`eclipse-temurin:21-jdk-ubi9-minimal`,
-  builds + tests via `./mvnw`, Testcontainers pointed at the sidecar through
-  `DOCKER_HOST=tcp://localhost:2376`, Ryuk disabled) and `docker` (`docker:dind-rootless`,
-  privileged; runs the `docker build`/`push`). Pod model mirrors `DinDBuild`; Harbor naming +
-  the `jenkins-harbor` credential mirror `DockerfileBuild`.
-- **Stages:** (1) `./mvnw -PallTests clean install` → JVM compile + the 50-test suite on a Dev
-  Services DB. (2) `docker build` of **`src/main/docker/Dockerfile.native-multi-stage`** → the
-  native binary compiles **inside the Mandrel/JDK‑21 builder stage** (`native-image` runs there, so
-  `quarkus.native.container-build=false` — no nested container build, no GraalVM on the agent),
-  then a minimal runtime image is pushed to `harbor.tools.nyx.kb.dk/<BITBUCKET_PROJECT_KEY>/
-  <BITBUCKET_REPOSITORY>:<version>-<branch>-sha.<sha>-build.<n>`.
+  project needs. `DockerfileBuild` runs `mvn verify` *inside* a BuildKit image build → no Docker
+  daemon for Testcontainers. `DinDBuild` gives a Docker daemon but (a) only publishes the **jar to
+  Nexus**, never an image, and (b) a **modern `docker:dind-rootless` daemon rejects Testcontainers
+  1.20.6's API v1.32** ("minimum supported API version is 1.40"), and `DOCKER_API_VERSION` is
+  ignored by that docker-java — so DinD can't run *this* suite's Dev Services tests either. So the
+  pipeline avoids Testcontainers for tests entirely (below) and does test + image in one run.
+- **Agent:** a Kubernetes pod with three containers:
+  - `jdk` (`eclipse-temurin:21-jdk-ubi9-minimal`) — builds + tests via `./mvnw`. It runs the suite
+    against the `postgres` sidecar (datasource set via `QUARKUS_DATASOURCE_JDBC_URL/USERNAME/
+    PASSWORD` + `QUARKUS_DATASOURCE_DEVSERVICES_ENABLED=false`), **not** via Testcontainers — this
+    sidesteps the docker-java API-version problem above.
+  - `postgres` (`postgres:16-alpine`) — the throwaway test DB, with a `pg_isready` readinessProbe so
+    the build never races startup; Flyway migrates the empty schema at app start.
+  - `docker` (`docker:dind-rootless`, privileged) — used **only** by the image stage; the `docker`
+    CLI there drives its own local unix socket (no `DOCKER_HOST` override, so no HTTP-to-TLS error).
+- **Stages:** (1) `./mvnw -PallTests clean install` → JVM compile + the 50-test suite on the
+  sidecar DB. (2) `docker build` of **`src/main/docker/Dockerfile.native-multi-stage`** → the native
+  binary compiles **inside the Mandrel/JDK‑21 builder stage** (`native-image` runs there — no
+  GraalVM on the agent), then a minimal runtime image is pushed to
+  `harbor.tools.nyx.kb.dk/blekinge/hashbin-quarkus:<version>-<branch>-sha.<sha>-build.<n>` (the
+  library segment `blekinge` is pinned, since the Bitbucket env vars are null on the GitHub job).
 - **Prereqs the pipeline assumes** (all committed): Maven wrapper `./mvnw` + `.mvn/wrapper/`
   (`only-script`, Maven 3.9.16 — the pipeline invokes `./mvnw`, not `mvn`), a no-op **`allTests`**
-  profile, and a **`.dockerignore`** (trims the build context; `target/` is kept so the
-  single-stage hand-build Dockerfiles still work).
-- **Registry split (deliberate):** CI pushes the **org Harbor** image (xipax-style). The
-  **`ghcr.io/blekinge/hashbin-quarkus`** image that `hashbin-deploy` references is the *OSS /
-  local* path, built by hand with `mvn -Dnative … package` (README "Container image"). Two
-  registries, same native image.
-- **Local parity checks** (rootless Podman stands in for the sidecar / `docker build`):
-  `./mvnw -PallTests clean install` → 50 tests, BUILD SUCCESS; `buildah build --target final
-  -f src/main/docker/Dockerfile.native-multi-stage` → native image builds.
+  profile, and a **`.dockerignore`** (trims the build context; `target/` is kept so the single-stage
+  hand-build Dockerfiles still work).
+- **Registry split (deliberate):** CI pushes the **org Harbor** image. The
+  **`ghcr.io/blekinge/hashbin-quarkus`** image that `hashbin-deploy` references is the *OSS / local*
+  path, built by hand with `mvn -Dnative … package` (README "Container image"). Two registries, same
+  native image.
+- **Local parity checks:** `./mvnw -PallTests clean install` (against a local engine/sidecar) →
+  50 tests; `buildah build --target final -f src/main/docker/Dockerfile.native-multi-stage` → native
+  image builds + runs (`/api/health` ok). The Jenkins-specific bits (DinD sidecar, `jenkins-harbor`
+  credential, Harbor push) can't be exercised locally.
 - **Unverified in this environment:** the actual Jenkins/Kubernetes run (no Jenkins controller
   here), the `jenkins-harbor` credential, and `BITBUCKET_PROJECT_KEY`/`BITBUCKET_REPOSITORY`
   env vars — these exist only on the org controller. The pipeline mirrors the working shared-lib
