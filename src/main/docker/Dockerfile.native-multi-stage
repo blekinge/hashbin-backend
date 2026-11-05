@@ -25,12 +25,15 @@
 FROM quay.io/quarkus/ubi9-quarkus-mandrel-builder-image:jdk-21 AS build
 USER root
 WORKDIR /build
-# Wire the (optional) org Nexus settings so ./mvnw can resolve internal deps when supplied.
+# Cache the Maven local repository across builds. The mount is the `repository` subdir
+# only (not all of $HOME/.m2), so the settings.xml symlink created just below is not
+# shadowed. Needs BuildKit (the pipeline exports DOCKER_BUILDKIT=1); buildah supports it too.
 RUN mkdir -p "$HOME/.m2" && ln -sf /run/secrets/settings.xml "$HOME/.m2/settings.xml"
 # Copy the source tree (target/ etc. excluded by .dockerignore), then build the runner.
 COPY . .
 RUN --mount=type=secret,id=settings.xml \
     --mount=type=secret,id=settings-security.xml \
+    --mount=type=cache,target=/root/.m2/repository \
     chmod +x ./mvnw && \
     ./mvnw --batch-mode --no-transfer-progress --errors \
       -P '!web' \
