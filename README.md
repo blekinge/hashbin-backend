@@ -6,10 +6,12 @@ the original was a Supabase Edge Function written in Deno + Hono. This service i
 (`/api/stamp`, `/api/verify`, `/api/my-timestamps`, `/api/health`), same JSON
 (snake_case), same HMAC signature scheme.
 
-> Status: **Phase 2** — scaffold, configuration, Flyway schema, `Timestamp`
-> entity, `/api/health`, and `POST /api/stamp` (HMAC signing, per-IP rate
-> limiting, validation + error parity with the original). The `verify` /
-> `my-timestamps` endpoints and JWT auth land in Phase 3.
+> Status: **Phase 3** — all four endpoints implemented: `/api/health`,
+> `POST /api/stamp`, `GET /api/verify`, `GET /api/my-timestamps`, with HMAC
+> signing, per-IP rate limiting, validation/error parity, public vs. private
+> column projection, and Supabase JWT auth (token round-trip). OpenAPI/Swagger
+> are auto-generated. Phase 4 adds the `/api/openapi.json` alias; Phase 5 is the
+> end-to-end CLI compatibility check.
 
 ## Requirements
 
@@ -51,6 +53,15 @@ mvn test
 | Datasource user | `QUARKUS_DATASOURCE_USERNAME` | DB user |
 | Datasource password | `QUARKUS_DATASOURCE_PASSWORD` | DB password |
 | HMAC secret | `HASHBIN_HMAC_SECRET` | Signs `{hash_sha256}:{created_at}` |
+| Supabase URL | `SUPABASE_URL` | Base URL for the auth token round-trip |
+| Supabase anon key | `SUPABASE_ANON_KEY` | Optional `apikey` header on the round-trip |
+
+**Auth:** the optional bearer token on `/api/stamp` and the token required by
+`/api/my-timestamps` are validated by exchanging them at
+`{SUPABASE_URL}/auth/v1/user` — the same approach the original Deno function used.
+It is deliberately *not* local JWKS verification, because Supabase signs tokens
+with HS256 (a shared secret); the round-trip is algorithm-agnostic and honours
+revocation. An invalid/absent token simply makes a stamp anonymous.
 
 In dev/test the service uses the docker-compose Postgres (`localhost:5433`,
 db/user/pass all `hashbin`). Quarkus **Dev Services is disabled** because this
@@ -67,16 +78,24 @@ src/main/java/net/hashbin/
   service/HmacSigner.java           # HMAC-SHA256 signature (Deno-compatible)
   service/RateLimiter.java          # fixed-window per-IP limiter (10/min)
   service/TimestampService.java     # @Transactional persistence boundary
+  service/AuthService.java          # bearer token -> user id (interface)
+  service/SupabaseAuthService.java  # Supabase /auth/v1/user round-trip impl
   rest/HealthResource.java          # GET  /api/health
   rest/StampResource.java           # POST /api/stamp
+  rest/VerifyResource.java          # GET  /api/verify?hash=&algorithm=
+  rest/MyTimestampsResource.java     # GET  /api/my-timestamps (auth)
   rest/Errors.java                  # {"error": "..."} response builder
   rest/dto/TimestampView.java       # snake_case full projection
+  rest/dto/TimestampPublicView.java # snake_case public projection (verify)
 src/main/resources/
   application.properties
   db/migration/V1__create_timestamps.sql
 src/test/java/net/hashbin/
   HealthResourceTest.java
   StampResourceTest.java
+  VerifyResourceTest.java
+  MyTimestampsResourceTest.java
   service/HmacSignerTest.java
   service/RateLimiterTest.java
+  testsupport/FakeAuthService.java
 ```

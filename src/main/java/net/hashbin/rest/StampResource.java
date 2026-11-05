@@ -24,6 +24,7 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import net.hashbin.model.Timestamp;
 import net.hashbin.rest.dto.TimestampView;
+import net.hashbin.service.AuthService;
 import net.hashbin.service.HmacSigner;
 import net.hashbin.service.RateLimiter;
 import net.hashbin.service.TimestampService;
@@ -58,6 +59,9 @@ public class StampResource {
     @Inject
     ObjectMapper mapper;
 
+    @Inject
+    AuthService auth;
+
     @POST
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
@@ -68,7 +72,8 @@ public class StampResource {
     @APIResponse(responseCode = "429", description = "Rate limited")
     public Response stamp(String rawBody,
             @HeaderParam("x-forwarded-for") String forwardedFor,
-            @HeaderParam("cf-connecting-ip") String cfIp) {
+            @HeaderParam("cf-connecting-ip") String cfIp,
+            @HeaderParam("Authorization") String authorization) {
 
         String ip = clientIp(forwardedFor, cfIp);
         if (rateLimiter.isLimited(ip)) {
@@ -141,7 +146,7 @@ public class StampResource {
         entity.fileName = fileName;
         entity.createdAt = OffsetDateTime.parse(createdAt); // ends with 'Z'
         entity.serverSignature = signature;
-        entity.userId = null; // Authenticated attribution lands in Phase 3.
+        entity.userId = auth.resolveUserId(authorization).orElse(null); // anonymous when no/invalid token
 
         try {
             service.save(entity);
