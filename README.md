@@ -233,3 +233,8 @@ src/test/java/net/hashbin/
   service/HmacSignerTest.java
   service/RateLimiterTest.java
 ```
+
+## License
+
+Released under the **Apache License, Version 2.0** — see [LICENSE](LICENSE).
+Copyright 2025 Hashbin Contributors.

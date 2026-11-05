@@ -10,6 +10,14 @@
   <name>Hashbin Quarkus Backend</name>
   <description>Trusted file timestamping service (Quarkus port of the hashbin.net Edge Function)</description>
 
+  <licenses>
+    <license>
+      <name>Apache License, Version 2.0</name>
+      <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+
   <properties>
     <compiler-plugin.version>3.13.0</compiler-plugin.version>
     <maven.compiler.release>21</maven.compiler.release>
