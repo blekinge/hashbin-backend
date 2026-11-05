@@ -6,12 +6,13 @@ the original was a Supabase Edge Function written in Deno + Hono. This service i
 (`/api/stamp`, `/api/verify`, `/api/my-timestamps`, `/api/health`), same JSON
 (snake_case), same HMAC signature scheme.
 
-> Status: **Phase 4** — all four endpoints implemented and served under `/api`,
-> with HMAC signing, per-IP rate limiting, validation/error parity, public vs.
-> private column projection, and Supabase JWT auth. The auto-generated OpenAPI
-> document is exposed both at `/q/openapi` (YAML/JSON) and as an
-> `/api/openapi.json` alias for the existing frontend's Docs page. Phase 5 is the
-> end-to-end CLI compatibility check.
+> Status: **Complete (Phases 1–5)** — a drop-in Quarkus port of the hashbin.net
+> backend. All four endpoints are served under `/api` with HMAC signing, per-IP
+> rate limiting, validation/error parity, public vs. private column projection,
+> and Supabase JWT auth. The auto-generated OpenAPI document is exposed both at
+> `/q/openapi` and as an `/api/openapi.json` alias for the existing frontend. The
+> real Python CLI from the Lovable repo is verified against this service by
+> `scripts/cli-compat-check.sh`.
 
 ## Requirements
 
@@ -72,11 +73,33 @@ db/user/pass all `hashbin`). Quarkus **Dev Services is disabled** because this
 project's Testcontainers build cannot auto-detect Docker Engine 29, so the
 container is started explicitly.
 
+## CLI compatibility check
+
+`scripts/cli-compat-check.sh` drives the **real** `hashbin` Python CLI (from the
+sibling Lovable repo) against a running instance of this service and asserts the
+port is a drop-in replacement:
+
+1. `hashbin health` reports healthy.
+2. `hashbin stamp <file>` returns a timestamp for all four digests.
+3. `hashbin verify <file>` finds the record.
+4. the stored `server_signature` recomputes as
+   `HMAC-SHA256(secret, "{hash_sha256}:{created_at}")`.
+
+```bash
+docker compose up -d
+mvn quarkus:dev -Dquarkus.http.port=8093        # in another shell
+HASHBIN_API_BASE=http://localhost:8093/api ./scripts/cli-compat-check.sh
+```
+
+It patches a throwaway copy of the CLI's `API_BASE` and never edits the original.
+`HASHBIN_CLI` and `HASHBIN_HMAC_SECRET` override the CLI path and secret.
+
 ## Layout
 
 ```
 pom.xml
 docker-compose.yml
+scripts/cli-compat-check.sh         # Phase 5: drives the real CLI against this service
 src/main/java/net/hashbin/
   model/Timestamp.java              # JPA/Panache entity -> "timestamps" table
   service/HmacSigner.java           # HMAC-SHA256 signature (Deno-compatible)
