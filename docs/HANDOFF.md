@@ -43,11 +43,35 @@ Tests: **50/50 green** (`mvn test`).
 - **Build with JDK 21, not 25.** Default machine JDK is 25; Quarkus 3.20's Byte
   Buddy rejects Java 25 class files at Hibernate build time. Always:
   `export JAVA_HOME=~/.sdkman/candidates/java/21.0.9-tem`.
-- **Dev Services disabled; Postgres is an explicit container on `localhost:5433`**
-  (`docker compose up -d`). Reason: Testcontainers couldn't auto-detect Docker
-  Engine 29 on the original machine. A reboot *might* fix Testcontainers, but the
-  explicit container is deterministic — keep it. (`quarkus.devservices.enabled=false`
-  in `application.properties`.)
+- **Default DB is Quarkus Dev Services on Podman (rootless), not Docker** — as of
+  2026-11-05. `application.properties` has **no dev/test JDBC URL**, so Dev Services
+  activates and starts a `postgres:16-alpine` container (pinned via
+  `quarkus.datasource.devservices.image-name`). Plain `mvn test` / `mvn quarkus:dev`
+  work because the **machine-wide `~/.testcontainers.properties`** points Testcontainers
+  at the rootless Podman socket (`docker.host=unix:///run/user/1000/podman/podman.sock`)
+  and disables Ryuk (`ryuk.container.enabled=false`) — this fix applies to every
+  Testcontainers project on this host, not just this repo. On a machine without that
+  global config, run `systemctl --user start podman.socket` and export
+  `DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock` and
+  `TESTCONTAINERS_RYUK_DISABLED=true` before running.
+  - *Why Podman:* Docker Engine 29 (this host, API 1.56) rejects the **v1.32** API
+    that docker-java in Testcontainers 1.20.6 (Quarkus 3.20.1) negotiates —
+    `400 client version 1.32 is too old. Minimum supported API version is 1.40` —
+    so Dev Services can't start against Docker here (a reboot does NOT fix this, and
+    `DOCKER_API_VERSION` (tried `1.40`/`1.44`) is ignored by 1.20.6's client
+    selection). Podman's Docker-compat API ignores the version prefix and accepts
+    v1.32, so Dev Services works. A Quarkus/Testcontainers upgrade (docker-java
+    defaulting to ≥1.40) would also fix Docker, but isn't needed.
+  - *Image store:* Podman does **not** share Docker's images. `postgres:16-alpine`
+    must exist in Podman's store — `podman pull`, or offline
+    `docker save postgres:16-alpine | podman load`. `testcontainers.reuse.enable=true`
+    in `~/.testcontainers.properties` keeps one Postgres warm between runs (fast reuse;
+    remove a stale one with `podman rm -f <id>`).
+  - *External-DB fallback:* uncomment the `quarkus.datasource.jdbc.url/username/
+    password` lines in `application.properties` (a set JDBC URL disables Dev Services)
+    and point them at any reachable PostgreSQL. The old `docker-compose.yml` (and the
+    `scripts/with-podman` wrapper) were removed on 2026-11-05 now that the engine is
+    pinned machine-wide.
 - **JAX-RS base is `quarkus.rest.path=/api`**, *not* `quarkus.http.root-path`.
   `root-path` is not applied under `@QuarkusTest`; `rest.path` is, and it keeps
   `/q/openapi` & `/q/swagger-ui` at `/q`.
@@ -80,15 +104,21 @@ Tests: **50/50 green** (`mvn test`).
 ```bash
 cd /home/asga/git/github/blekinge/hashbin-quarkus
 export JAVA_HOME=~/.sdkman/candidates/java/21.0.9-tem   # JDK 21 — REQUIRED
-docker compose up -d                                     # Postgres on :5433
-mvn quarkus:dev                                          # app on :8080
-mvn test                                                 # needs the container up
+mvn quarkus:dev                    # Dev Services on Podman (via ~/.testcontainers.properties); app on :8080
+mvn test                           # same; 50 tests, ephemeral DB
 ```
+
+Needs rootless Podman with `podman.socket` active; the machine-wide
+`~/.testcontainers.properties` points Testcontainers at it and disables Ryuk. On a
+machine without that config, export `DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock`
+and `TESTCONTAINERS_RYUK_DISABLED=true` first. External-DB fallback: see the Dev
+Services gotcha above.
 
 Required env for production: `QUARKUS_DATASOURCE_JDBC_URL`, `QUARKUS_DATASOURCE_USERNAME`,
 `QUARKUS_DATASOURCE_PASSWORD`, `HASHBIN_HMAC_SECRET`, `HASHBIN_JWT_SECRET`
-(+ optional `HASHBIN_JWT_ISSUER`, `HASHBIN_JWT_TTL_MINUTES`). Dev defaults exist
-in `application.properties` but are insecure — override them.
+(+ optional `HASHBIN_JWT_ISSUER`, `HASHBIN_JWT_TTL_MINUTES`). Dev/test uses an
+ephemeral Dev Services DB (no DB creds to manage), but the dev HMAC/JWT secrets in
+`application.properties` are insecure defaults — override them in production.
 
 ## What is LEFT to do
 

@@ -6,7 +6,7 @@
 #
 # Prerequisites:
 #   - This service running (e.g. `mvn quarkus:dev`, or the built jar)
-#   - PostgreSQL reachable (dev: docker compose up -d)
+#   - PostgreSQL reachable (dev: `mvn quarkus:dev` starts one via Dev Services on Podman)
 #   - python3 on PATH
 #
 # Env overrides:

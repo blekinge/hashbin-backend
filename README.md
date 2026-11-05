@@ -6,11 +6,12 @@ the original was a Supabase Edge Function written in Deno + Hono. This service i
 pages: same routes (`/api/stamp`, `/api/verify`, `/api/my-timestamps`,
 `/api/health`), same JSON (snake_case), same HMAC signature scheme.
 
-> Status: **Complete (Phases 1–6)** — a self-hosted Quarkus port of the hashbin.net
+> Status: **Complete (Phases 1–7)** — a self-hosted Quarkus port of the hashbin.net
 > backend, **with no remaining Supabase dependency**. All endpoints are served
 > under `/api` with HMAC signing, per-IP rate limiting, validation/error parity,
-> public vs. private column projection, and **native email + password auth that
-> issues its own HS256 JWTs** (Phase 6). The auto-generated OpenAPI document is
+> public vs. private column projection, **native email + password auth that
+> issues its own HS256 JWTs** (Phase 6), and a public `/api/explore` feed that backs
+> the Explore page (Phase 7). The auto-generated OpenAPI document is
 > exposed at `/q/openapi` and as an `/api/openapi.json` alias. The real Python CLI
 > from the Lovable repo is verified against this service by
 > `scripts/cli-compat-check.sh`.
@@ -29,24 +30,35 @@ pages: same routes (`/api/stamp`, `/api/verify`, `/api/my-timestamps`,
 - **Java 21** (Temurin). The machine default here is Java 25, which Quarkus 3.20's
   bundled Byte Buddy does not yet support — build with JDK 21.
 - **Maven** 3.9+
-- **Docker** (for the PostgreSQL container)
+- **Podman** (rootless) — the default PostgreSQL is started on demand by Quarkus
+  Dev Services via Testcontainers. The machine-wide `~/.testcontainers.properties`
+  points Testcontainers at Podman (Docker Engine 29 rejects the API version this
+  Testcontainers version negotiates — see `docs/HANDOFF.md`), so plain `mvn test` /
+  `mvn quarkus:dev` work. On an unconfigured machine, export
+  `DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock` and
+  `TESTCONTAINERS_RYUK_DISABLED=true` first.
 
 ## Run
 
-```bash
-# 1. Start PostgreSQL (maps to localhost:5433)
-docker compose up -d
+Dev Services starts a throwaway PostgreSQL in Podman, so there is no manual
+database step. Testcontainers is pointed at the rootless Podman socket by the
+machine-wide `~/.testcontainers.properties` (Docker Engine 29 rejects the API version
+this Testcontainers version negotiates — details in `docs/HANDOFF.md`).
 
-# 2. Build / run on Java 21
+```bash
 export JAVA_HOME=~/.sdkman/candidates/java/21.0.9-tem   # or any JDK 21
 mvn quarkus:dev
 ```
+
+> On an unconfigured machine, first export
+> `DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock` and `TESTCONTAINERS_RYUK_DISABLED=true`.
 
 Endpoints:
 
 - Health:          <http://localhost:8080/api/health>
 - Stamp:           `POST http://localhost:8080/api/stamp`
 - Verify:          `GET  http://localhost:8080/api/verify?hash=&algorithm=`
+- Explore:         `GET  http://localhost:8080/api/explore?limit=&offset=` (public, newest-first)
 - My timestamps:   `GET  http://localhost:8080/api/my-timestamps` (bearer token)
 - Register:        `POST http://localhost:8080/api/auth/register` (`{email,password}`)
 - Login:           `POST http://localhost:8080/api/auth/login` (`{email,password}`)
@@ -59,8 +71,7 @@ Endpoints:
 ## Test
 
 ```bash
-docker compose up -d      # tests connect to the same Postgres container
-mvn test
+mvn test     # Dev Services starts an ephemeral Postgres (Podman, via ~/.testcontainers.properties)
 ```
 
 ## Configuration
@@ -84,10 +95,14 @@ attributes the record to that user; an invalid/absent token makes the stamp
 anonymous; `/api/my-timestamps` and `/api/auth/me` require a valid token
 (`401` otherwise). No Supabase is contacted at runtime.
 
-In dev/test the service uses the docker-compose Postgres (`localhost:5433`,
-db/user/pass all `hashbin`). Quarkus **Dev Services is disabled** because this
-project's Testcontainers build cannot auto-detect Docker Engine 29, so the
-container is started explicitly.
+In dev/test the service uses **Quarkus Dev Services**, which starts an ephemeral
+`postgres:16-alpine` container via Testcontainers on **Podman**. Testcontainers is
+pointed at the rootless Podman socket by the machine-wide
+`~/.testcontainers.properties` (`docker.host=…/podman/podman.sock`, Ryuk disabled),
+so `mvn test` / `mvn quarkus:dev` work directly. Docker Engine 29 is not used because
+it rejects the Docker API version this Testcontainers version negotiates; Podman's
+compat API accepts it. As a fallback you can point at any external PostgreSQL by
+setting the JDBC URL in `application.properties` (see the comments there).
 
 ## CLI compatibility check
 
@@ -102,8 +117,7 @@ port is a drop-in replacement:
    `HMAC-SHA256(secret, "{hash_sha256}:{created_at}")`.
 
 ```bash
-docker compose up -d
-mvn quarkus:dev -Dquarkus.http.port=8093        # in another shell
+mvn quarkus:dev -Dquarkus.http.port=8093        # Dev Services on Podman; in another shell
 HASHBIN_API_BASE=http://localhost:8093/api ./scripts/cli-compat-check.sh
 ```
 
@@ -114,7 +128,6 @@ It patches a throwaway copy of the CLI's `API_BASE` and never edits the original
 
 ```
 pom.xml
-docker-compose.yml
 scripts/cli-compat-check.sh         # Phase 5: drives the real CLI against this service
 src/main/java/net/hashbin/
   model/Timestamp.java              # JPA/Panache entity -> "timestamps" table
@@ -130,11 +143,12 @@ src/main/java/net/hashbin/
   rest/StampResource.java           # POST /api/stamp
   rest/VerifyResource.java          # GET  /api/verify?hash=&algorithm=
   rest/MyTimestampsResource.java    # GET  /api/my-timestamps (auth)
+  rest/ExploreResource.java         # GET  /api/explore?limit=&offset= (public, newest-first)
   rest/AuthResource.java            # POST /api/auth/{register,login}, GET /api/auth/me
   rest/OpenApiSpecResource.java     # GET  /api/openapi.json (spec alias)
   rest/Errors.java                  # {"error": "..."} response builder
   rest/dto/TimestampView.java       # snake_case full projection
-  rest/dto/TimestampPublicView.java # snake_case public projection (verify)
+  rest/dto/TimestampPublicView.java # snake_case public projection (verify + explore)
   rest/dto/AuthRequest.java         # register/login body
   rest/dto/AuthResponse.java        # token + user payload
   rest/dto/MeView.java              # /auth/me payload
@@ -146,6 +160,7 @@ src/test/java/net/hashbin/
   HealthResourceTest.java
   StampResourceTest.java
   VerifyResourceTest.java
+  ExploreResourceTest.java
   MyTimestampsResourceTest.java
   AuthResourceTest.java
   OpenApiSpecResourceTest.java
