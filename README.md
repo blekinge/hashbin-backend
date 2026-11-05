@@ -9,7 +9,7 @@ independent build units:
 | **`hashbin-quarkus`** | The service / Docker image. **All Quarkus lives here.** | Quarkus 3.40.1 / JDK 21 |
 | **`hashbin-api`** | Java client: **models + a MicroProfile REST Client generated from the service's OpenAPI.** | JDK 21, openapi-generator + Jackson |
 
-A parent POM (`hashbin-parent`, `packaging=pom`) aggregates the two and holds only
+A parent POM (`hashbin-backend`, `packaging=pom`) aggregates the two and holds only
 shared, Quarkus-free build config.
 
 ## Why split into these two modules

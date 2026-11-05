@@ -341,7 +341,7 @@ storage, metrics-driven autoscaling, edge rate-limiting) are tracked in `../../h
 ## Layout
 
 ```
-pom.xml                               # parent aggregator (hashbin-parent, packaging=pom): modules + shared build config
+pom.xml                               # parent aggregator (hashbin-backend, packaging=pom): modules + shared build config
 mvnw / .mvn/wrapper/                  # Maven wrapper (the pipeline invokes ./mvnw at the repo root)
 ci/Jenkinsfile                        # self-contained Jenkins CI: test on a postgres sidecar + build/push image to Harbor
 scripts/cli-compat-check.sh           # drives the real (Python) CLI against this service
