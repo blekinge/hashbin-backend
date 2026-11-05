@@ -110,6 +110,19 @@ pipeline {
             steps {
                 container('jdk') {
                     withMaven() {
+                        // Don't race the postgres sidecar startup: wait until it accepts TCP 5432.
+                        // (The pod's readinessProbe usually gates this, but the Jenkins step can
+                        // begin as soon as the jnlp agent is up.)
+                        sh '''
+                          for i in $(seq 1 60); do
+                            if bash -c "</dev/tcp/127.0.0.1/5432" 2>/dev/null; then
+                              echo "postgres is up"; exit 0
+                            fi
+                            sleep 1
+                          done
+                          echo "postgres never became ready" >&2; exit 1
+                        '''
+
                         // The wrapper downloads Maven 3.9.16 and builds on the image's JDK 21 (the
                         // only JDK Quarkus 3.20's Hibernate build accepts). -PallTests runs the full
                         // suite; the datasource env above points it at the postgres sidecar.
