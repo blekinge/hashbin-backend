@@ -24,7 +24,7 @@ backend, which originally shipped as a Supabase Edge Function (Deno + Hono) at
   `quarkus-flyway`, `quarkus-smallrye-openapi` + Swagger UI, `quarkus-hibernate-validator`,
   `quarkus-elytron-security-common` (BCrypt), `com.nimbusds:nimbus-jose-jwt` (JWT, BOM-managed 9.48).
 
-## Status: Phases 1–6 complete (backend is fully working, Supabase-free)
+## Status: Phases 1–7 complete (backend is fully working, Supabase-free)
 
 | Commit | Phase | What |
 |---|---|---|
@@ -34,8 +34,9 @@ backend, which originally shipped as a Supabase Edge Function (Deno + Hono) at
 | `f99c929` | 4 | Serve auto-generated OpenAPI at `/api/openapi.json` (for the Docs page) |
 | `a1f2d3f` | 5 | CLI compatibility verified end-to-end (`scripts/cli-compat-check.sh`) |
 | `48d3ee7` | 6 | **Native email+password auth, own HS256 JWTs — off Supabase** |
+| `7efdf05` | 7 | `GET /api/explore` — public projection, newest-first, `limit`/`offset` paging (Explore page off Supabase) |
 
-Tests: **41/41 green** (`mvn test`).
+Tests: **50/50 green** (`mvn test`).
 
 ## Key decisions & gotchas (do not silently "fix" these)
 
@@ -66,6 +67,13 @@ Tests: **41/41 green** (`mvn test`).
   watch: a Quarkus upgrade could rename that resource — but `OpenApiSpecResourceTest`
   fails loudly if it does.
 - **`user_id` is a bare UUID** (no FK) → stays decoupled from `app_users`/Supabase.
+- **`GET /api/explore`** (Phase 7) reuses `TimestampPublicView` and orders by
+  `createdAt DESC, id DESC`. The `id DESC` is a deliberate tiebreaker so offset
+  paging stays stable when two stamps share a millisecond — not an accident; the
+  original Supabase read ordered on `created_at` alone. `limit` defaults to 20
+  (the frontend `PAGE_SIZE`) and is capped at **100** (the old direct-view read
+  had no cap); `limit`/`offset` are validated manually to keep the `{"error":…}`
+  400 shape consistent with `/verify`.
 
 ## Build / run / test (copy-paste)
 
@@ -84,18 +92,18 @@ in `application.properties` but are insecure — override them.
 
 ## What is LEFT to do
 
-1. **Explore endpoint** — the original frontend `Explore.tsx` read Supabase's
-   `timestamps_public` view directly (no API). Add e.g.
-   `GET /api/explore?limit=&offset=` returning the public projection
-   (`TimestampPublicView`) newest-first, so the Explore page can work without
-   Supabase. Small (~one resource method + a test).
-2. **Frontend Auth rewiring** — the React `Auth.tsx` called the Supabase JS SDK
-   (`signInWithPassword` / `signUp` / `signInWithOAuth("google")`). The backend
-   now offers `POST /api/auth/register`, `POST /api/auth/login`,
-   `GET /api/auth/me` returning `{token,...}`. The browser must store/send that
-   bearer on `/stamp` and `/my-timestamps`. (Google OAuth is not implemented —
-   add an OAuth flow if still wanted.)
-3. **Optional** — Java/Picocli CLI rewrite (Python CLI works fine and is verified);
+1. **Frontend rewiring (Auth + Explore)** — the React app still talks to Supabase
+   directly for both pages; the backend now has endpoints to replace them.
+   - `Auth.tsx` called the Supabase JS SDK (`signInWithPassword` / `signUp` /
+     `signInWithOAuth("google")`). Point it at the new `POST /api/auth/register`,
+     `POST /api/auth/login`, `GET /api/auth/me` (all return `{token,...}`). The
+     browser must store/send that bearer on `/stamp` and `/my-timestamps`.
+     (Google OAuth is not implemented — add an OAuth flow if still wanted.)
+   - `Explore.tsx` read Supabase's `timestamps_public` view directly. Point it at
+     `GET /api/explore?limit=&offset=` (returns the anonymized
+     `TimestampPublicView`, newest-first; client-side hash-prefix filter already
+     exists). Use `limit=PAGE_SIZE+1` to keep its `hasMore` detection working.
+2. **Optional** — Java/Picocli CLI rewrite (Python CLI works fine and is verified);
    auth-email infra (the original `process-email-queue` + `email_infra` migration
    is Supabase/Lovable boilerplate, deliberately NOT ported — use `quarkus-mailer`
    if email confirmation/reset is needed).
