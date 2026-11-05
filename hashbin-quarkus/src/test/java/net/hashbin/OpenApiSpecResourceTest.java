@@ -37,4 +37,37 @@ class OpenApiSpecResourceTest {
         given().when().get("/api/openapi.json")
                 .then().statusCode(200).body("info.title", equalTo("Hashbin API"));
     }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void specCarriesTypedSchemas() {
+        Map<String, Object> doc = given()
+                .when().get("/api/openapi.json")
+                .then().statusCode(200)
+                .extract().body().jsonPath().getMap("");
+
+        Map<String, Object> schemas = (Map<String, Object>) ((Map<String, Object>) doc.get("components")).get("schemas");
+        for (String name : new String[] { "StampRequest", "TimestampView", "TimestampPublicView", "AuthResponse", "MeView" }) {
+            org.junit.jupiter.api.Assertions.assertTrue(schemas.containsKey(name),
+                    "components.schemas should define " + name + " (found: " + schemas.keySet() + ")");
+        }
+
+        // /stamp request body must reference the typed StampRequest (not a generic object).
+        Map<String, Object> stampReq = (Map<String, Object>) givenPath(doc, "/api/stamp", "post")
+                .get("requestBody");
+        Map<String, Object> json = (Map<String, Object>) ((Map<String, Object>) stampReq.get("content")).get("application/json");
+        org.junit.jupiter.api.Assertions.assertEquals("#/components/schemas/StampRequest",
+                ((Map<String, Object>) json.get("schema")).get("$ref"));
+
+        // StampRequest properties are snake_case on the wire.
+        Map<String, Object> props = (Map<String, Object>) ((Map<String, Object>) schemas.get("StampRequest")).get("properties");
+        org.junit.jupiter.api.Assertions.assertTrue(props.containsKey("hash_sha256") && props.containsKey("file_size"),
+                "StampRequest should expose snake_case properties (found: " + props.keySet() + ")");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> givenPath(Map<String, Object> doc, String path, String method) {
+        Map<String, Object> paths = (Map<String, Object>) doc.get("paths");
+        return (Map<String, Object>) ((Map<String, Object>) paths.get(path)).get(method);
+    }
 }

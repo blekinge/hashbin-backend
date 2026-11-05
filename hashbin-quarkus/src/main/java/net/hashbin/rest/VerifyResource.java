@@ -6,6 +6,8 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import org.eclipse.microprofile.openapi.annotations.Operation;
+import org.eclipse.microprofile.openapi.annotations.media.Content;
+import org.eclipse.microprofile.openapi.annotations.media.Schema;
 import org.eclipse.microprofile.openapi.annotations.parameters.Parameter;
 import org.eclipse.microprofile.openapi.annotations.responses.APIResponse;
 import org.eclipse.microprofile.openapi.annotations.tags.Tag;
@@ -49,7 +51,8 @@ public class VerifyResource {
     @Transactional
     @Operation(summary = "Look up timestamps for a hash",
             description = "Auto-detects the algorithm by hash length, or specify explicitly via the algorithm parameter.")
-    @APIResponse(responseCode = "200", description = "Array of matching timestamps (may be empty)")
+    @APIResponse(responseCode = "200", description = "Array of matching timestamps (may be empty)",
+            content = @Content(schema = @Schema(implementation = TimestampPublicView[].class)))
     @APIResponse(responseCode = "400", description = "Invalid hash or unsupported algorithm")
     public Response verify(
             @QueryParam("hash") String hash,

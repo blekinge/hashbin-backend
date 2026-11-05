@@ -8,6 +8,9 @@ import java.util.UUID;
 import java.util.regex.Pattern;
 
 import org.eclipse.microprofile.openapi.annotations.Operation;
+import org.eclipse.microprofile.openapi.annotations.media.Content;
+import org.eclipse.microprofile.openapi.annotations.media.Schema;
+import org.eclipse.microprofile.openapi.annotations.parameters.RequestBody;
 import org.eclipse.microprofile.openapi.annotations.responses.APIResponse;
 import org.eclipse.microprofile.openapi.annotations.tags.Tag;
 
@@ -23,6 +26,7 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import net.hashbin.model.Timestamp;
+import net.hashbin.rest.dto.StampRequest;
 import net.hashbin.rest.dto.TimestampView;
 import net.hashbin.service.AuthService;
 import net.hashbin.service.HmacSigner;
@@ -67,7 +71,9 @@ public class StampResource {
     @Produces(MediaType.APPLICATION_JSON)
     @Operation(summary = "Create a signed timestamp",
             description = "Rate-limited to 10 requests/minute per IP. SHA-256 is required; MD5, SHA-1 and SHA-512 are optional.")
-    @APIResponse(responseCode = "200", description = "Timestamp created")
+    @RequestBody(required = true, content = @Content(schema = @Schema(implementation = StampRequest.class)))
+    @APIResponse(responseCode = "200", description = "Timestamp created",
+            content = @Content(schema = @Schema(implementation = TimestampView.class)))
     @APIResponse(responseCode = "400", description = "Validation error")
     @APIResponse(responseCode = "429", description = "Rate limited")
     public Response stamp(String rawBody,

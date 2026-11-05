@@ -6,6 +6,9 @@ import java.util.stream.Collectors;
 
 import org.eclipse.microprofile.openapi.annotations.Operation;
 import org.eclipse.microprofile.openapi.annotations.enums.SecuritySchemeType;
+import org.eclipse.microprofile.openapi.annotations.media.Content;
+import org.eclipse.microprofile.openapi.annotations.media.Schema;
+import org.eclipse.microprofile.openapi.annotations.responses.APIResponse;
 import org.eclipse.microprofile.openapi.annotations.security.SecurityRequirement;
 import org.eclipse.microprofile.openapi.annotations.security.SecurityScheme;
 import org.eclipse.microprofile.openapi.annotations.tags.Tag;
@@ -40,6 +43,9 @@ public class MyTimestampsResource {
     @Transactional
     @SecurityRequirement(name = "bearerAuth")
     @Operation(summary = "List the authenticated user's timestamps")
+    @APIResponse(responseCode = "200", description = "Array of the caller's timestamps (full projection)",
+            content = @Content(schema = @Schema(implementation = TimestampView[].class)))
+    @APIResponse(responseCode = "401", description = "Authentication required")
     public Response myTimestamps(@HeaderParam("Authorization") String authorization) {
         UUID userId = auth.resolveUserId(authorization).orElse(null);
         if (userId == null) {

@@ -4,6 +4,8 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 import org.eclipse.microprofile.openapi.annotations.Operation;
+import org.eclipse.microprofile.openapi.annotations.media.Content;
+import org.eclipse.microprofile.openapi.annotations.media.Schema;
 import org.eclipse.microprofile.openapi.annotations.parameters.Parameter;
 import org.eclipse.microprofile.openapi.annotations.responses.APIResponse;
 import org.eclipse.microprofile.openapi.annotations.tags.Tag;
@@ -44,7 +46,8 @@ public class ExploreResource {
     @Operation(summary = "List recent public timestamps",
             description = "Anonymized projection, newest first, offset-paginated. "
                     + "Replaces the Supabase timestamps_public view the Explore page used to read directly.")
-    @APIResponse(responseCode = "200", description = "Array of public timestamps (may be empty)")
+    @APIResponse(responseCode = "200", description = "Array of public timestamps (may be empty)",
+            content = @Content(schema = @Schema(implementation = TimestampPublicView[].class)))
     @APIResponse(responseCode = "400", description = "Invalid limit or offset")
     public Response explore(
             @Parameter(description = "Page size, 1-100 (default " + DEFAULT_LIMIT + ")")

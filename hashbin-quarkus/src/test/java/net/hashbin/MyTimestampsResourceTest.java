@@ -116,9 +116,16 @@ class MyTimestampsResourceTest {
     @Test
     void tamperedTokenIsUnauthorized() {
         String token = jwt.issue(USER_A, "a@example.com");
-        // Flip the final signature character to invalidate the token.
-        char last = token.charAt(token.length() - 1);
-        String tampered = token.substring(0, token.length() - 1) + (last == 'a' ? 'b' : 'a');
+        // Replace the whole signature segment so the HMAC is guaranteed to differ.
+        // Flipping a single base64url character is unreliable: a trailing character can
+        // encode fewer than 8 significant bits, so "tampering" it sometimes yields the
+        // identical decoded signature — leaving the token valid and returning 200.
+        int dot = token.lastIndexOf('.');
+        String signature = token.substring(dot + 1);
+        String tamperedSignature = signature.chars().allMatch(c -> c == 'A')
+                ? "B".repeat(signature.length())
+                : "A".repeat(signature.length());
+        String tampered = token.substring(0, dot + 1) + tamperedSignature;
         myTimestamps(tampered).then().statusCode(401);
     }
 }

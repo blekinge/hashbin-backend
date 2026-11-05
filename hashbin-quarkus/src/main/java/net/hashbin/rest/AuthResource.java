@@ -4,6 +4,9 @@ import java.util.UUID;
 import java.util.regex.Pattern;
 
 import org.eclipse.microprofile.openapi.annotations.Operation;
+import org.eclipse.microprofile.openapi.annotations.media.Content;
+import org.eclipse.microprofile.openapi.annotations.media.Schema;
+import org.eclipse.microprofile.openapi.annotations.responses.APIResponse;
 import org.eclipse.microprofile.openapi.annotations.security.SecurityRequirement;
 import org.eclipse.microprofile.openapi.annotations.tags.Tag;
 
@@ -47,6 +50,9 @@ public class AuthResource {
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
     @Operation(summary = "Register a new account and return an access token")
+    @APIResponse(responseCode = "201", description = "Account created; returns an access token",
+            content = @Content(schema = @Schema(implementation = AuthResponse.class)))
+    @APIResponse(responseCode = "409", description = "Email already registered")
     public Response register(AuthRequest req) {
         String invalid = validate(req);
         if (invalid != null) {
@@ -83,6 +89,9 @@ public class AuthResource {
     @Produces(MediaType.APPLICATION_JSON)
     @SecurityRequirement(name = "bearerAuth")
     @Operation(summary = "Return the authenticated user's profile")
+    @APIResponse(responseCode = "200", description = "The authenticated user",
+            content = @Content(schema = @Schema(implementation = MeView.class)))
+    @APIResponse(responseCode = "401", description = "Authentication required")
     public Response me(@HeaderParam("Authorization") String authorization) {
         UUID userId = jwt.resolveUserId(authorization).orElse(null);
         if (userId == null) {
