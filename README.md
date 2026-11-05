@@ -6,9 +6,10 @@ the original was a Supabase Edge Function written in Deno + Hono. This service i
 (`/api/stamp`, `/api/verify`, `/api/my-timestamps`, `/api/health`), same JSON
 (snake_case), same HMAC signature scheme.
 
-> Status: **Phase 1** — project scaffold, configuration, Flyway schema, `Timestamp`
-> entity, and `/api/health`. The `stamp` / `verify` / `my-timestamps` endpoints,
-> HMAC signing, rate limiting and JWT auth land in later phases.
+> Status: **Phase 2** — scaffold, configuration, Flyway schema, `Timestamp`
+> entity, `/api/health`, and `POST /api/stamp` (HMAC signing, per-IP rate
+> limiting, validation + error parity with the original). The `verify` /
+> `my-timestamps` endpoints and JWT auth land in Phase 3.
 
 ## Requirements
 
@@ -62,11 +63,20 @@ container is started explicitly.
 pom.xml
 docker-compose.yml
 src/main/java/net/hashbin/
-  model/Timestamp.java        # JPA/Panache entity -> "timestamps" table
-  rest/HealthResource.java    # GET /api/health
+  model/Timestamp.java              # JPA/Panache entity -> "timestamps" table
+  service/HmacSigner.java           # HMAC-SHA256 signature (Deno-compatible)
+  service/RateLimiter.java          # fixed-window per-IP limiter (10/min)
+  service/TimestampService.java     # @Transactional persistence boundary
+  rest/HealthResource.java          # GET  /api/health
+  rest/StampResource.java           # POST /api/stamp
+  rest/Errors.java                  # {"error": "..."} response builder
+  rest/dto/TimestampView.java       # snake_case full projection
 src/main/resources/
   application.properties
   db/migration/V1__create_timestamps.sql
 src/test/java/net/hashbin/
   HealthResourceTest.java
+  StampResourceTest.java
+  service/HmacSignerTest.java
+  service/RateLimiterTest.java
 ```
