@@ -1,15 +1,21 @@
 # Trim the docker build context and keep the COPY layer cache stable across docs/CI edits.
-# `.git/` is the biggest win (a few MB and grows with history); `docs/`, `scripts/`, and `ci/`
-# are never read by the build, so excluding them lets the image layer cache survive changes to
-# documentation and the Jenkinsfile. `target/` is intentionally NOT excluded: the single-stage
-# `src/main/docker/Dockerfile.jvm` and `Dockerfile.native` COPY artifacts from it.
+# This file governs the multi-stage CI builds run from the repo root
+# (`ci/Jenkinsfile`: `docker build -f hashbin-quarkus/src/main/docker/Dockerfile.*-multi-stage .`),
+# which compile inside the container and so want no host build output in the context.
+# `.git/` is the biggest win (a few MB, grows with history); `docs/`, `scripts/`, and `ci/` are
+# never read by the build, so excluding them lets the layer cache survive doc/Jenkinsfile edits.
+#
+# Note: the single-stage `Dockerfile.jvm`/`Dockerfile.native` (used by `mvn -Dquarkus.container-image.build`)
+# run with the *module* directory as context, where `target/` is the artifact they COPY — that
+# context is unaffected by this root-level file, so excluding `**/target/` here is safe.
 
 .git/
 .gitignore
 .idea/
 .vscode/
 *.iml
-.quarkus/
+**/.quarkus/
+**/target/
 *.env
 docs/
 scripts/

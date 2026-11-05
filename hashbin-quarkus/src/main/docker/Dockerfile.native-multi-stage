@@ -16,7 +16,7 @@
 # internal Nexus dependency is ever added, pass the org settings as a BuildKit secret and it
 # will be wired in below — the mount is optional and skipped when not supplied:
 #   docker build --secret id=settings.xml,src=$MVN_SETTINGS --target final -t <image> \
-#     -f src/main/docker/Dockerfile.native-multi-stage .
+#     -f hashbin-quarkus/src/main/docker/Dockerfile.native-multi-stage .
 #
 # Runs as non-root UID 185 on :8080, matching the Deployment's securityContext / containerPort.
 ####
@@ -36,6 +36,7 @@ RUN --mount=type=secret,id=settings.xml \
     --mount=type=cache,target=/root/.m2/repository \
     chmod +x ./mvnw && \
     ./mvnw --batch-mode --no-transfer-progress --errors \
+      -pl hashbin-quarkus -am \
       -P '!web' \
       -Dquarkus.native.enabled=true \
       -Dquarkus.native.container-build=false \
@@ -45,7 +46,7 @@ RUN --mount=type=secret,id=settings.xml \
 # ---- final: minimal runtime image (this is what gets tagged & pushed) ---------------
 FROM registry.access.redhat.com/ubi9/ubi-minimal:9.5 AS final
 WORKDIR /work/
-COPY --from=build --chown=185 /build/target/*-runner /work/application
+COPY --from=build --chown=185 /build/hashbin-quarkus/target/*-runner /work/application
 RUN chmod 775 /work
 EXPOSE 8080
 USER 185

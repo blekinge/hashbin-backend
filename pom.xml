@@ -5,10 +5,15 @@
   <modelVersion>4.0.0</modelVersion>
 
   <groupId>net.hashbin</groupId>
-  <artifactId>hashbin-quarkus</artifactId>
+  <artifactId>hashbin-parent</artifactId>
   <version>1.0.0-SNAPSHOT</version>
-  <name>Hashbin Quarkus Backend</name>
-  <description>Trusted file timestamping service (Quarkus port of the hashbin.net Edge Function)</description>
+  <packaging>pom</packaging>
+  <name>Hashbin Parent</name>
+  <description>
+    Aggregator for the hashbin.net timestamping backend: the Quarkus service (hashbin-quarkus)
+    and a plain-Java client library (hashbin-api). This parent holds only build configuration that
+    is shared and Quarkus-free; every Quarkus dependency/plugin lives in the hashbin-quarkus module.
+  </description>
 
   <licenses>
     <license>
@@ -18,194 +23,58 @@
     </license>
   </licenses>
 
+  <modules>
+    <module>hashbin-quarkus</module>
+    <module>hashbin-api</module>
+  </modules>
+
   <properties>
-    <compiler-plugin.version>3.13.0</compiler-plugin.version>
     <maven.compiler.release>21</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
-    <quarkus.platform.artifact-id>quarkus-bom</quarkus.platform.artifact-id>
-    <quarkus.platform.group-id>io.quarkus.platform</quarkus.platform.group-id>
-    <quarkus.platform.version>3.40.1</quarkus.platform.version>
+    <compiler-plugin.version>3.13.0</compiler-plugin.version>
     <surefire-plugin.version>3.5.2</surefire-plugin.version>
+    <junit.version>5.11.4</junit.version>
   </properties>
 
   <dependencyManagement>
     <dependencies>
+      <!-- Plain-JUnit BOM for the non-Quarkus hashbin-api module. The Quarkus BOM is NOT
+           imported here: it belongs to the service module only, keeping the client free of
+           any Quarkus coupling. -->
       <dependency>
-        <groupId>${quarkus.platform.group-id}</groupId>
-        <artifactId>${quarkus.platform.artifact-id}</artifactId>
-        <version>${quarkus.platform.version}</version>
+        <groupId>org.junit</groupId>
+        <artifactId>junit-bom</artifactId>
+        <version>${junit.version}</version>
         <type>pom</type>
         <scope>import</scope>
       </dependency>
     </dependencies>
   </dependencyManagement>
 
-  <dependencies>
-    <!-- REST + JSON -->
-    <dependency>
-      <groupId>io.quarkus</groupId>
-      <artifactId>quarkus-rest</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>io.quarkus</groupId>
-      <artifactId>quarkus-rest-jackson</artifactId>
-    </dependency>
-
-    <!-- Persistence: PostgreSQL via Hibernate ORM with Panache, schema via Flyway -->
-    <dependency>
-      <groupId>io.quarkus</groupId>
-      <artifactId>quarkus-hibernate-orm-panache</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>io.quarkus</groupId>
-      <artifactId>quarkus-jdbc-postgresql</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>io.quarkus</groupId>
-      <artifactId>quarkus-flyway</artifactId>
-    </dependency>
-
-    <!-- API documentation: auto-generated OpenAPI + Swagger UI -->
-    <dependency>
-      <groupId>io.quarkus</groupId>
-      <artifactId>quarkus-smallrye-openapi</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>io.quarkus</groupId>
-      <artifactId>quarkus-swagger-ui</artifactId>
-    </dependency>
-
-    <!-- Bean validation (used by stamp/verify request models) -->
-    <dependency>
-      <groupId>io.quarkus</groupId>
-      <artifactId>quarkus-hibernate-validator</artifactId>
-    </dependency>
-
-    <!-- Password hashing (BCrypt) for the native users table -->
-    <dependency>
-      <groupId>io.quarkus</groupId>
-      <artifactId>quarkus-elytron-security-common</artifactId>
-    </dependency>
-
-    <!-- JWT issue + verify (HS256). Version supplied by the Quarkus BOM. -->
-    <dependency>
-      <groupId>com.nimbusds</groupId>
-      <artifactId>nimbus-jose-jwt</artifactId>
-    </dependency>
-
-    <!-- Container-image build (Docker/Podman). Build-time only: it contributes no
-         runtime code, so `mvn test` / `mvn package` behave exactly as before. It
-         makes `mvn package` able to produce the native image that hashbin-deploy
-         pulls (ghcr.io/blekinge/hashbin-quarkus) — see README "Container image". -->
-    <dependency>
-      <groupId>io.quarkus</groupId>
-      <artifactId>quarkus-container-image-docker</artifactId>
-    </dependency>
-
-    <!-- Test -->
-    <dependency>
-      <groupId>io.quarkus</groupId>
-      <artifactId>quarkus-junit5</artifactId>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>io.rest-assured</groupId>
-      <artifactId>rest-assured</artifactId>
-      <scope>test</scope>
-    </dependency>
-  </dependencies>
-
   <build>
-    <plugins>
-      <plugin>
-        <groupId>${quarkus.platform.group-id}</groupId>
-        <artifactId>quarkus-maven-plugin</artifactId>
-        <version>${quarkus.platform.version}</version>
-        <extensions>true</extensions>
-        <executions>
-          <execution>
-            <goals>
-              <goal>build</goal>
-              <goal>generate-code</goal>
-              <goal>generate-code-tests</goal>
-              <goal>native-image-agent</goal>
-            </goals>
-          </execution>
-        </executions>
-      </plugin>
-      <plugin>
-        <artifactId>maven-compiler-plugin</artifactId>
-        <version>${compiler-plugin.version}</version>
-        <configuration>
-          <parameters>true</parameters>
-        </configuration>
-      </plugin>
-      <plugin>
-        <artifactId>maven-surefire-plugin</artifactId>
-        <version>${surefire-plugin.version}</version>
-        <configuration>
-          <systemPropertyVariables>
-            <java.util.logging.manager>org.jboss.logmanager.LogManager</java.util.logging.manager>
-            <maven.home>${maven.home}</maven.home>
-          </systemPropertyVariables>
-        </configuration>
-      </plugin>
-    </plugins>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <artifactId>maven-compiler-plugin</artifactId>
+          <version>${compiler-plugin.version}</version>
+          <configuration>
+            <parameters>true</parameters>
+          </configuration>
+        </plugin>
+        <plugin>
+          <artifactId>maven-surefire-plugin</artifactId>
+          <version>${surefire-plugin.version}</version>
+        </plugin>
+      </plugins>
+    </pluginManagement>
   </build>
 
   <profiles>
-    <profile>
-      <id>native</id>
-      <activation>
-        <property>
-          <name>native</name>
-        </property>
-      </activation>
-      <properties>
-        <quarkus.native.enabled>true</quarkus.native.enabled>
-        <quarkus.package.jar.enabled>false</quarkus.package.jar.enabled>
-        <!-- Compile the native binary inside a Mandrel container, so no local
-             GraalVM/Mandrel install is required (this host has none). Needs only a
-             container engine (Docker, or Podman via the flags in README).
-             Image name/registry live in application.properties (apply to JVM too). -->
-        <quarkus.native.container-build>true</quarkus.native.container-build>
-      </properties>
-    </profile>
-
-    <!-- Same-origin frontend: when the sibling hashbin-web static build is present,
-         copy it onto the classpath under META-INF/resources so Quarkus serves the UI
-         from "/" in dev and in the packaged jar (no CORS, config.js default "/api"
-         works unchanged). Auto-active when ../hashbin-web/dist/index.html exists;
-         skip with -P '!web'. -->
-    <profile>
-      <id>web</id>
-      <activation>
-        <file>
-          <exists>../hashbin-web/dist/index.html</exists>
-        </file>
-      </activation>
-      <build>
-        <resources>
-          <!-- Re-declare the default resource directory: a <resources> block replaces
-               the inherited default, which would otherwise drop application.properties
-               and the Flyway migrations. -->
-          <resource>
-            <directory>src/main/resources</directory>
-          </resource>
-          <resource>
-            <directory>../hashbin-web/dist</directory>
-            <targetPath>META-INF/resources</targetPath>
-          </resource>
-        </resources>
-      </build>
-    </profile>
-
-    <!-- The Jenkins pipeline runs `./mvnw -PallTests clean install` (see ci/Jenkinsfile). All of
-         this project's tests already run by default, so this profile is a documented no-op kept
-         only to satisfy that convention and keep `-PallTests` from warning. If a lighter default
-         suite is ever introduced (e.g. excluding the container-backed Dev Services tests), this
-         profile is where the full set gets re-enabled. -->
+    <!-- The Jenkins pipeline runs `./mvnw -PallTests clean install` at the repository root
+         (see ci/Jenkinsfile). All of this project's tests already run by default, so this
+         profile is a documented no-op kept only to satisfy that convention and keep
+         `-PallTests` from warning. Lives on the parent so the root reactor honours the flag. -->
     <profile>
       <id>allTests</id>
     </profile>

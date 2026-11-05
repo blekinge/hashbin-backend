@@ -212,8 +212,8 @@ pipeline {
                         // Pick the image recipe from the flag. Both are source builds with a `final`
                         // stage; JVM is the fast default, native is the (slow) long-term target.
                         env.BUILD_DOCKERFILE = (env.BUILD_NATIVE == 'true') \
-                            ? 'src/main/docker/Dockerfile.native-multi-stage' \
-                            : 'src/main/docker/Dockerfile.jvm-multi-stage'
+                            ? 'hashbin-quarkus/src/main/docker/Dockerfile.native-multi-stage' \
+                            : 'hashbin-quarkus/src/main/docker/Dockerfile.jvm-multi-stage'
                         echo "Building and pushing ${env.IMAGE_TAG} (${env.BUILD_NATIVE == 'true' ? 'native' : 'JVM'} image from ${env.BUILD_DOCKERFILE})"
                         if (isMain) echo "Main branch '${branch}': also tagging and pushing ${env.LATEST_TAG}"
                     }
