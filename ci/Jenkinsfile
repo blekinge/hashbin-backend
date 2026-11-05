@@ -96,12 +96,16 @@ pipeline {
 
                         // Capture the version for the image tag now, while we have the wrapper and
                         // JDK here; the image stage runs in the sidecar container, which has no JDK.
-                        def version = sh(returnStdout: true, script: '''
-                            ./mvnw --batch-mode --quiet --define forceStdout \
-                              --define expression=project.version help:evaluate
-                        ''').trim()
-                        env.PROJECT_VERSION = version
-                        echo "Project version: ${version}"
+                        // Bare Groovy (def / assignment) must be inside script{} in a Declarative
+                        // steps{} block — a raw `def` there is a compilation error, not a step.
+                        script {
+                            def version = sh(returnStdout: true, script: '''
+                                ./mvnw --batch-mode --quiet --define forceStdout \
+                                  --define expression=project.version help:evaluate
+                            ''').trim()
+                            env.PROJECT_VERSION = version
+                            echo "Project version: ${version}"
+                        }
                     }
                 }
             }
