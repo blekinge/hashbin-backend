@@ -173,10 +173,9 @@
                    .openapi-generator-ignore (which lives at output=. = this module root). Its
                    /* and /*.* patterns discard depth-1 entries (pom.xml, README.md, etc.)
                    while the deeper generated sources under target/generated-sources/... survive.
-                   generateSupportingFiles is ON only so the root .openapi-generator-ignore is the
-                   single source of truth for what is kept; we keep just the models + *Api
-                   interfaces and discard the generated ApiException/ApiExceptionMapper/RFC3339*
-                   in favour of our own hand-written ApiException + HashbinErrorMapper (src/main). -->
+                   generateSupportingFiles is ON so we also get the STOCK ApiException +
+                   ApiExceptionMapper (the generated *Api interfaces throw ApiException) and the
+                   RFC3339* helpers; the only hand-written glue left is BearerClientHeadersFactory. -->
 
               <!-- Generate the MicroProfile REST Client interfaces + the Jackson models. -->
               <generateApis>true</generateApis>
@@ -192,6 +191,7 @@
                 <microprofileRestClientVersion>3.0</microprofileRestClientVersion>
                 <rootJavaEEPackage>jakarta</rootJavaEEPackage>
                 <useJakartaEe>true</useJakartaEe>
+                <useRuntimeException>true</useRuntimeException>
                 <microprofileRegisterExceptionMapper>false</microprofileRegisterExceptionMapper>
                 <serializationLibrary>jackson</serializationLibrary>
                 <microprofileMutiny>false</microprofileMutiny>

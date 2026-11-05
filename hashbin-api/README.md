@@ -27,7 +27,8 @@ hashbin-api:
      - net.hashbin.api.model.*            (StampRequest, TimestampView, TimestampPublicView,
                                            AuthRequest, AuthResponse, MeView)  — Jackson POJOs
      - net.hashbin.api.{Timestamps,Auth,Health,Docs}Api   — @RegisterRestClient interfaces
-     - net.hashbin.api.ApiException        — the error the ops declare/throw (extends Exception)
+     - net.hashbin.api.ApiException        — the error the ops declare/throw (unchecked; via the
+                                             useRuntimeException=true config option)
      - net.hashbin.api.ApiExceptionMapper  — @Provider ResponseExceptionMapper: non-2xx -> ApiException
      - net.hashbin.api.RFC3339*            — Jackson java.time helpers (unused here; all timestamps
                                              are modelled as ISO-8601 strings)
