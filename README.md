@@ -6,11 +6,11 @@ the original was a Supabase Edge Function written in Deno + Hono. This service i
 (`/api/stamp`, `/api/verify`, `/api/my-timestamps`, `/api/health`), same JSON
 (snake_case), same HMAC signature scheme.
 
-> Status: **Phase 3** — all four endpoints implemented: `/api/health`,
-> `POST /api/stamp`, `GET /api/verify`, `GET /api/my-timestamps`, with HMAC
-> signing, per-IP rate limiting, validation/error parity, public vs. private
-> column projection, and Supabase JWT auth (token round-trip). OpenAPI/Swagger
-> are auto-generated. Phase 4 adds the `/api/openapi.json` alias; Phase 5 is the
+> Status: **Phase 4** — all four endpoints implemented and served under `/api`,
+> with HMAC signing, per-IP rate limiting, validation/error parity, public vs.
+> private column projection, and Supabase JWT auth. The auto-generated OpenAPI
+> document is exposed both at `/q/openapi` (YAML/JSON) and as an
+> `/api/openapi.json` alias for the existing frontend's Docs page. Phase 5 is the
 > end-to-end CLI compatibility check.
 
 ## Requirements
@@ -33,10 +33,14 @@ mvn quarkus:dev
 
 Endpoints:
 
-- Health:        <http://localhost:8080/api/health>
-- Swagger UI:    <http://localhost:8080/q/swagger-ui>
-- OpenAPI spec:  <http://localhost:8080/q/openapi>
-- Dev UI:        <http://localhost:8080/q/dev-ui>
+- Health:          <http://localhost:8080/api/health>
+- Stamp:           `POST http://localhost:8080/api/stamp`
+- Verify:          `GET  http://localhost:8080/api/verify?hash=&algorithm=`
+- My timestamps:   `GET  http://localhost:8080/api/my-timestamps` (bearer token)
+- OpenAPI (alias): <http://localhost:8080/api/openapi.json>  ← used by the frontend Docs page
+- OpenAPI (native): <http://localhost:8080/q/openapi>  (YAML/JSON, content-negotiated)
+- Swagger UI:      <http://localhost:8080/q/swagger-ui>
+- Dev UI:          <http://localhost:8080/q/dev-ui>
 
 ## Test
 
@@ -84,6 +88,7 @@ src/main/java/net/hashbin/
   rest/StampResource.java           # POST /api/stamp
   rest/VerifyResource.java          # GET  /api/verify?hash=&algorithm=
   rest/MyTimestampsResource.java     # GET  /api/my-timestamps (auth)
+  rest/OpenApiSpecResource.java      # GET  /api/openapi.json (spec alias)
   rest/Errors.java                  # {"error": "..."} response builder
   rest/dto/TimestampView.java       # snake_case full projection
   rest/dto/TimestampPublicView.java # snake_case public projection (verify)
@@ -95,6 +100,7 @@ src/test/java/net/hashbin/
   StampResourceTest.java
   VerifyResourceTest.java
   MyTimestampsResourceTest.java
+  OpenApiSpecResourceTest.java
   service/HmacSignerTest.java
   service/RateLimiterTest.java
   testsupport/FakeAuthService.java
