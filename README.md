@@ -27,30 +27,25 @@ pages: same routes (`/api/stamp`, `/api/verify`, `/api/my-timestamps`,
 
 ## Requirements
 
-- **Java 21** (Temurin). The machine default here is Java 25, which Quarkus 3.20's
-  bundled Byte Buddy does not yet support — build with JDK 21.
+- **Java 21** — required; Quarkus 3.20's bundled Byte Buddy rejects Java 25 class files.
 - **Maven** 3.9+
-- **Podman** (rootless) — the default PostgreSQL is started on demand by Quarkus
-  Dev Services via Testcontainers. The machine-wide `~/.testcontainers.properties`
-  points Testcontainers at Podman (Docker Engine 29 rejects the API version this
-  Testcontainers version negotiates — see `docs/HANDOFF.md`), so plain `mvn test` /
-  `mvn quarkus:dev` work. On an unconfigured machine, export
-  `DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock` and
-  `TESTCONTAINERS_RYUK_DISABLED=true` first.
+- **A container engine** (Docker, or rootless **Podman**) reachable by Testcontainers — Dev
+  Services starts the PostgreSQL it needs on demand. With Docker working out of the box,
+  `mvn test` / `mvn quarkus:dev` just run. For rootless Podman, start the socket
+  (`systemctl --user start podman.socket`) and export
+  `DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock` and `TESTCONTAINERS_RYUK_DISABLED=true`
+  (see `docs/HANDOFF.md` for why Podman is sometimes needed).
 
 ## Run
 
-Dev Services starts a throwaway PostgreSQL in Podman, so there is no manual
-database step. Testcontainers is pointed at the rootless Podman socket by the
-machine-wide `~/.testcontainers.properties` (Docker Engine 29 rejects the API version
-this Testcontainers version negotiates — details in `docs/HANDOFF.md`).
+Dev Services starts a throwaway PostgreSQL on demand, so there is no manual database step.
 
 ```bash
-export JAVA_HOME=~/.sdkman/candidates/java/21.0.9-tem   # or any JDK 21
+export JAVA_HOME=<a JDK 21>     # JDK 21 required
 mvn quarkus:dev
 ```
 
-> On an unconfigured machine, first export
+> On rootless Podman, first start `podman.socket` and export
 > `DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock` and `TESTCONTAINERS_RYUK_DISABLED=true`.
 
 **Web UI (same-origin):** if the sibling `../hashbin-web` has been built (`npm run
@@ -76,7 +71,7 @@ Endpoints:
 ## Test
 
 ```bash
-mvn test     # Dev Services starts an ephemeral Postgres (Podman, via ~/.testcontainers.properties)
+mvn test     # Dev Services starts an ephemeral Postgres via Testcontainers
 ```
 
 ## Container image
@@ -165,13 +160,9 @@ anonymous; `/api/my-timestamps` and `/api/auth/me` require a valid token
 (`401` otherwise). No Supabase is contacted at runtime.
 
 In dev/test the service uses **Quarkus Dev Services**, which starts an ephemeral
-`postgres:16-alpine` container via Testcontainers on **Podman**. Testcontainers is
-pointed at the rootless Podman socket by the machine-wide
-`~/.testcontainers.properties` (`docker.host=…/podman/podman.sock`, Ryuk disabled),
-so `mvn test` / `mvn quarkus:dev` work directly. Docker Engine 29 is not used because
-it rejects the Docker API version this Testcontainers version negotiates; Podman's
-compat API accepts it. As a fallback you can point at any external PostgreSQL by
-setting the JDBC URL in `application.properties` (see the comments there).
+`postgres:16-alpine` container via Testcontainers. As a fallback you can point at any
+external PostgreSQL by setting the JDBC URL in `application.properties` (see the comments
+there).
 
 ## CLI compatibility check
 

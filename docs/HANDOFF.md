@@ -8,14 +8,14 @@ are the way they are and *what is left*.
 ## What this project is
 
 A **Java / Quarkus port** of the **hashbin.net** trusted file-timestamping
-backend, which originally shipped as a Supabase Edge Function (Deno + Hono) at
-`/home/asga/git/github/blekinge/hashbin-time-vault`.
+backend, which originally shipped as a Supabase Edge Function (Deno + Hono) in a
+sibling repo (`hashbin-time-vault`).
 
 - Goal: reimplement the backend in a stack the owner maintains (Java/Quarkus),
   **wire-compatible** with the existing React frontend (API pages) and the
   existing Python CLI, and **remove the Supabase runtime dependency**.
-- The original repo is **untouched** — this is a clean sibling project at
-  `/home/asga/git/github/blekinge/hashbin-quarkus` (its own git repo).
+- The original repo is **untouched** — this is a clean, independent sibling project
+  (`hashbin-quarkus`, its own git repo).
 
 ## Stack / versions
 
@@ -40,38 +40,26 @@ Tests: **50/50 green** (`mvn test`).
 
 ## Key decisions & gotchas (do not silently "fix" these)
 
-- **Build with JDK 21, not 25.** Default machine JDK is 25; Quarkus 3.20's Byte
-  Buddy rejects Java 25 class files at Hibernate build time. Always:
-  `export JAVA_HOME=~/.sdkman/candidates/java/21.0.9-tem`.
-- **Default DB is Quarkus Dev Services on Podman (rootless), not Docker** — as of
-  2026-11-05. `application.properties` has **no dev/test JDBC URL**, so Dev Services
-  activates and starts a `postgres:16-alpine` container (pinned via
-  `quarkus.datasource.devservices.image-name`). Plain `mvn test` / `mvn quarkus:dev`
-  work because the **machine-wide `~/.testcontainers.properties`** points Testcontainers
-  at the rootless Podman socket (`docker.host=unix:///run/user/1000/podman/podman.sock`)
-  and disables Ryuk (`ryuk.container.enabled=false`) — this fix applies to every
-  Testcontainers project on this host, not just this repo. On a machine without that
-  global config, run `systemctl --user start podman.socket` and export
-  `DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock` and
-  `TESTCONTAINERS_RYUK_DISABLED=true` before running.
-  - *Why Podman:* Docker Engine 29 (this host, API 1.56) rejects the **v1.32** API
-    that docker-java in Testcontainers 1.20.6 (Quarkus 3.20.1) negotiates —
-    `400 client version 1.32 is too old. Minimum supported API version is 1.40` —
-    so Dev Services can't start against Docker here (a reboot does NOT fix this, and
-    `DOCKER_API_VERSION` (tried `1.40`/`1.44`) is ignored by 1.20.6's client
-    selection). Podman's Docker-compat API ignores the version prefix and accepts
-    v1.32, so Dev Services works. A Quarkus/Testcontainers upgrade (docker-java
-    defaulting to ≥1.40) would also fix Docker, but isn't needed.
-  - *Image store:* Podman does **not** share Docker's images. `postgres:16-alpine`
-    must exist in Podman's store — `podman pull`, or offline
-    `docker save postgres:16-alpine | podman load`. `testcontainers.reuse.enable=true`
-    in `~/.testcontainers.properties` keeps one Postgres warm between runs (fast reuse;
-    remove a stale one with `podman rm -f <id>`).
-  - *External-DB fallback:* uncomment the `quarkus.datasource.jdbc.url/username/
-    password` lines in `application.properties` (a set JDBC URL disables Dev Services)
-    and point them at any reachable PostgreSQL. The old `docker-compose.yml` (and the
-    `scripts/with-podman` wrapper) were removed on 2026-11-05 now that the engine is
-    pinned machine-wide.
+- **Build with JDK 21, not 25.** Quarkus 3.20's Byte Buddy rejects Java 25 class
+  files at Hibernate build time. Point `JAVA_HOME` at any JDK 21 (e.g. via sdkman
+  or your system package manager).
+- **Dev/test database is Quarkus Dev Services** — `application.properties` has **no dev/test
+  JDBC URL**, so Dev Services starts a throwaway `postgres:16-alpine` container (image pinned via
+  `quarkus.datasource.devservices.image-name`) through **Testcontainers**. You need a container
+  engine reachable by Testcontainers. Where Docker works out of the box, plain `mvn test` /
+  `mvn quarkus:dev` just run.
+  - *Rootless Podman alternative:* if you need Podman instead of Docker, start its socket
+    (`systemctl --user start podman.socket`) and point Testcontainers at it — export
+    `DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock` and `TESTCONTAINERS_RYUK_DISABLED=true`
+    (or set `docker.host` / `ryuk.container.enabled=false` in a `~/.testcontainers.properties`).
+    Some Docker Engine releases reject the older Docker API version that docker-java in
+    Testcontainers 1.20.6 (bundled with Quarkus 3.20.1) negotiates; Podman's Docker-compat API
+    accepts it. A Quarkus/Testcontainers upgrade (newer docker-java) also resolves it on Docker.
+  - *Image store (Podman):* Podman does **not** share Docker's images — ensure `postgres:16-alpine`
+    is present in Podman's store (`podman pull`, or `docker save postgres:16-alpine | podman load`).
+  - *External-DB fallback:* uncomment the `quarkus.datasource.jdbc.url/username/password` lines in
+    `application.properties` (a set JDBC URL disables Dev Services) and point them at any reachable
+    PostgreSQL.
 - **Serves the static web UI same-origin** via a file-activated Maven profile `web`:
   when `../hashbin-web/dist/index.html` exists it copies that build onto the classpath
   under `META-INF/resources`, so `mvn quarkus:dev` serves the UI at
@@ -123,17 +111,14 @@ Tests: **50/50 green** (`mvn test`).
 ## Build / run / test (copy-paste)
 
 ```bash
-cd /home/asga/git/github/blekinge/hashbin-quarkus
-export JAVA_HOME=~/.sdkman/candidates/java/21.0.9-tem   # JDK 21 — REQUIRED
-mvn quarkus:dev                    # Dev Services on Podman (via ~/.testcontainers.properties); app on :8080
+export JAVA_HOME=<a JDK 21>        # REQUIRED — Quarkus 3.20 fails to build on JDK 25
+mvn quarkus:dev                    # Dev Services starts an ephemeral Postgres; app on :8080
 mvn test                           # same; 50 tests, ephemeral DB
 ```
 
-Needs rootless Podman with `podman.socket` active; the machine-wide
-`~/.testcontainers.properties` points Testcontainers at it and disables Ryuk. On a
-machine without that config, export `DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock`
-and `TESTCONTAINERS_RYUK_DISABLED=true` first. External-DB fallback: see the Dev
-Services gotcha above.
+Needs a container engine reachable by Testcontainers (Docker, or rootless Podman with
+`podman.socket` active — see the Dev Services gotcha above). External-DB fallback is described
+there too.
 
 Required env for production: `QUARKUS_DATASOURCE_JDBC_URL`, `QUARKUS_DATASOURCE_USERNAME`,
 `QUARKUS_DATASOURCE_PASSWORD`, `HASHBIN_HMAC_SECRET`, `HASHBIN_JWT_SECRET`
