@@ -150,5 +150,33 @@
         <quarkus.package.jar.enabled>false</quarkus.package.jar.enabled>
       </properties>
     </profile>
+
+    <!-- Same-origin frontend: when the sibling hashbin-web static build is present,
+         copy it onto the classpath under META-INF/resources so Quarkus serves the UI
+         from "/" in dev and in the packaged jar (no CORS, config.js default "/api"
+         works unchanged). Auto-active when ../hashbin-web/dist/index.html exists;
+         skip with -P '!web'. -->
+    <profile>
+      <id>web</id>
+      <activation>
+        <file>
+          <exists>../hashbin-web/dist/index.html</exists>
+        </file>
+      </activation>
+      <build>
+        <resources>
+          <!-- Re-declare the default resource directory: a <resources> block replaces
+               the inherited default, which would otherwise drop application.properties
+               and the Flyway migrations. -->
+          <resource>
+            <directory>src/main/resources</directory>
+          </resource>
+          <resource>
+            <directory>../hashbin-web/dist</directory>
+            <targetPath>META-INF/resources</targetPath>
+          </resource>
+        </resources>
+      </build>
+    </profile>
   </profiles>
 </project>

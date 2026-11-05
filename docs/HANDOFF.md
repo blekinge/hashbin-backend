@@ -72,6 +72,18 @@ Tests: **50/50 green** (`mvn test`).
     and point them at any reachable PostgreSQL. The old `docker-compose.yml` (and the
     `scripts/with-podman` wrapper) were removed on 2026-11-05 now that the engine is
     pinned machine-wide.
+- **Serves the static web UI same-origin** via a file-activated Maven profile `web`:
+  when `../hashbin-web/dist/index.html` exists it copies that build onto the classpath
+  under `META-INF/resources`, so `mvn quarkus:dev` serves the UI at
+  `http://localhost:8080/` and the API at `/api` together — no CORS, and `config.js`'s
+  default `apiBase:"/api"` works as-is. The profile re-declares `src/main/resources`
+  (a `<resources>` block replaces the inherited default and would otherwise drop
+  `application.properties` + the Flyway migrations). Build the UI first
+  (`cd ../hashbin-web && npm run build`); disable serving with `-P '!web'`. With the
+  profile active, `mvn package` also bundles the UI into the jar (single-artifact
+  deploy) — but the **recommended production model keeps them separate** (host the
+  static `dist/` anywhere, point `config.js` at the API), which is why the UI is its
+  own repo `../hashbin-web`.
 - **JAX-RS base is `quarkus.rest.path=/api`**, *not* `quarkus.http.root-path`.
   `root-path` is not applied under `@QuarkusTest`; `rest.path` is, and it keeps
   `/q/openapi` & `/q/swagger-ui` at `/q`.
@@ -122,21 +134,19 @@ ephemeral Dev Services DB (no DB creds to manage), but the dev HMAC/JWT secrets 
 
 ## What is LEFT to do
 
-1. **Frontend rewiring (Auth + Explore)** — the React app still talks to Supabase
-   directly for both pages; the backend now has endpoints to replace them.
-   - `Auth.tsx` called the Supabase JS SDK (`signInWithPassword` / `signUp` /
-     `signInWithOAuth("google")`). Point it at the new `POST /api/auth/register`,
-     `POST /api/auth/login`, `GET /api/auth/me` (all return `{token,...}`). The
-     browser must store/send that bearer on `/stamp` and `/my-timestamps`.
-     (Google OAuth is not implemented — add an OAuth flow if still wanted.)
-   - `Explore.tsx` read Supabase's `timestamps_public` view directly. Point it at
-     `GET /api/explore?limit=&offset=` (returns the anonymized
-     `TimestampPublicView`, newest-first; client-side hash-prefix filter already
-     exists). Use `limit=PAGE_SIZE+1` to keep its `hasMore` detection working.
-2. **Optional** — Java/Picocli CLI rewrite (Python CLI works fine and is verified);
-   auth-email infra (the original `process-email-queue` + `email_infra` migration
-   is Supabase/Lovable boilerplate, deliberately NOT ported — use `quarkus-mailer`
-   if email confirmation/reset is needed).
+The web frontend is **done** as a separate, dependency-free static app in the sibling
+repo `../hashbin-web` (vanilla TypeScript + `tsc`; no Lovable/Supabase). It was built
+fresh rather than rewiring `hashbin-time-vault`, which is left untouched — that repo
+remains a design/copy reference only. (See the "Serves the static web UI same-origin"
+gotcha for the dev/prod wiring.)
+
+1. **Optional** — Java/Picocli CLI rewrite (the Python CLI works and is verified via
+   `scripts/cli-compat-check.sh`).
+2. **Optional** — auth-email infra (the original `process-email-queue` + `email_infra`
+   migration is Supabase/Lovable boilerplate, deliberately NOT ported — use
+   `quarkus-mailer` if email confirmation/reset is wanted).
+3. **Optional (frontend, in `../hashbin-web`)** — Google OAuth (no backend flow yet) and
+   a CLI-usage page; both were left out to keep the new UI minimal.
 
 ## Hardening gaps (nice-to-know, not blocking)
 

@@ -53,6 +53,11 @@ mvn quarkus:dev
 > On an unconfigured machine, first export
 > `DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock` and `TESTCONTAINERS_RYUK_DISABLED=true`.
 
+**Web UI (same-origin):** if the sibling `../hashbin-web` has been built (`npm run
+build`), a file-activated Maven profile copies its `dist/` onto the classpath, so this
+server also serves the UI at <http://localhost:8080/>. No CORS, and `config.js`'s default
+`apiBase:"/api"` works as-is. Disable with `-P '!web'`.
+
 Endpoints:
 
 - Health:          <http://localhost:8080/api/health>
