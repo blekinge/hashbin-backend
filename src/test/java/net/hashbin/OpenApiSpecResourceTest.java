@@ -27,7 +27,7 @@ class OpenApiSpecResourceTest {
         assertNotNull(doc.get("openapi"), "document should declare an openapi version");
         Map<String, Object> paths = (Map<String, Object>) doc.get("paths");
         assertNotNull(paths, "document should list paths");
-        for (String p : new String[] { "/api/stamp", "/api/verify", "/api/my-timestamps", "/api/health" }) {
+        for (String p : new String[] { "/api/stamp", "/api/verify", "/api/my-timestamps", "/api/explore", "/api/health" }) {
             assertTrue(paths.containsKey(p), "spec should include " + p + " (found: " + paths.keySet() + ")");
         }
     }
