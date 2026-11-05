@@ -74,6 +74,18 @@
       <artifactId>quarkus-hibernate-validator</artifactId>
     </dependency>
 
+    <!-- Password hashing (BCrypt) for the native users table -->
+    <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-elytron-security-common</artifactId>
+    </dependency>
+
+    <!-- JWT issue + verify (HS256). Version supplied by the Quarkus BOM. -->
+    <dependency>
+      <groupId>com.nimbusds</groupId>
+      <artifactId>nimbus-jose-jwt</artifactId>
+    </dependency>
+
     <!-- Test -->
     <dependency>
       <groupId>io.quarkus</groupId>
