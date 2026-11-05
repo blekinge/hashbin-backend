@@ -123,13 +123,18 @@ pipeline {
         buildDiscarder(logRotator(numToKeepStr: '5'))
     }
 
-    environment {
-        // Image kind for the build-and-push stage. Default builds a fast JVM image (Maven package
-        // + JRE). The long-term target is a native image: flip to 'true' to build
-        // Dockerfile.native-multi-stage (Mandrel native compile) instead. Both branches push to
-        // Harbor; only the build time differs (native is the slow, multi-minute one). Tests run
-        // against the postgres sidecar regardless of this flag.
-        BUILD_NATIVE = 'false'
+    parameters {
+        // Toggleable from the Jenkins UI ("Build with Parameters"). A booleanParam is exposed to
+        // the steps as the string env.BUILD_NATIVE == 'true'/'false', so the stage-2 logic below
+        // is unchanged. Default false = fast JVM image. The first run after this is added has no
+        // value yet (env.BUILD_NATIVE is null) -> the == 'true' checks fall through to JVM, the
+        // safe fast default; from the second run the last-used/default value applies.
+        booleanParam(
+            name: 'BUILD_NATIVE',
+            defaultValue: false,
+            description: 'Build/push the native (Mandrel) image. Off = JVM image (fast). The ' +
+                         'native build is the slow, multi-minute path and the long-term target.'
+        )
     }
 
     stages {
