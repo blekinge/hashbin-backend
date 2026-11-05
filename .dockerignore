@@ -1,0 +1,16 @@
+# Trim the docker build context and keep the COPY layer cache stable across docs/CI edits.
+# `.git/` is the biggest win (a few MB and grows with history); `docs/`, `scripts/`, and `ci/`
+# are never read by the build, so excluding them lets the image layer cache survive changes to
+# documentation and the Jenkinsfile. `target/` is intentionally NOT excluded: the single-stage
+# `src/main/docker/Dockerfile.jvm` and `Dockerfile.native` COPY artifacts from it.
+
+.git/
+.gitignore
+.idea/
+.vscode/
+*.iml
+.quarkus/
+*.env
+docs/
+scripts/
+ci/

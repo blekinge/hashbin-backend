@@ -5,10 +5,16 @@ import java.util.UUID;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 
+import io.quarkus.runtime.annotations.RegisterForReflection;
+
 /**
  * Response for successful register/login: the bearer token to use on
  * {@code /api/stamp} (for attribution) and {@code /api/my-timestamps}.
+ *
+ * <p>{@link RegisterForReflection} is required: the resource returns it inside a
+ * JAX-RS {@code Response}; see {@link TimestampView} for the native-image rationale.
  */
+@RegisterForReflection
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 public class AuthResponse {
 

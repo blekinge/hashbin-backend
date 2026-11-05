@@ -5,6 +5,7 @@ import java.util.UUID;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 
+import io.quarkus.runtime.annotations.RegisterForReflection;
 import net.hashbin.model.Timestamp;
 
 /**
@@ -12,7 +13,11 @@ import net.hashbin.model.Timestamp;
  * {@code file_name} and {@code user_id}, matching the original service which
  * selects only public columns (and which the Supabase {@code timestamps_public}
  * view also hid). Replaces the DB view with application-level projection.
+ *
+ * <p>{@link RegisterForReflection} is required because the resource returns it inside
+ * a JAX-RS {@code Response}; see {@link TimestampView} for the native-image rationale.
  */
+@RegisterForReflection
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 public class TimestampPublicView {
 

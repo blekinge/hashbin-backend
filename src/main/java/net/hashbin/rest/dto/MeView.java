@@ -5,7 +5,15 @@ import java.util.UUID;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 
-/** Response for {@code GET /api/auth/me}. */
+import io.quarkus.runtime.annotations.RegisterForReflection;
+
+/**
+ * Response for {@code GET /api/auth/me}.
+ *
+ * <p>{@link RegisterForReflection} is required: the resource returns it inside a
+ * JAX-RS {@code Response}; see {@link TimestampView} for the native-image rationale.
+ */
+@RegisterForReflection
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 public class MeView {
     public UUID userId;

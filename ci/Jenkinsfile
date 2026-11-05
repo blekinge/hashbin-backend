@@ -1,42 +1,172 @@
-// Jenkins pipeline for the hashbin-quarkus backend.
+// Self-contained Jenkins pipeline for the hashbin-quarkus backend. No shared-library calls on
+// purpose: the org's `DockerfileBuild` can't run this project's tests and `DinDBuild` can't push
+// its image (see the "why" in docs/HANDOFF.md). Everything those two did is done here, in one run:
+// build + the full test suite, then a **native** container image pushed to the org Harbor.
 //
-// Uses the org's shared `DinDBuild` library, in the same "Jenkins + Platform shared-lib + ./mvnw"
-// shape as the other Quarkus services (cf. DIGITV/xipax's ci/Jenkinsfile), but the Docker-in-Docker
-// variant rather than DockerfileBuild.
+// Why `ci/Jenkinsfile` and not the repository root: the org runs two Jenkins controllers that find
+// pipelines by *path* — the legacy one reads `Jenkinsfile` in the root, the current one
+// `ci/Jenkinsfile`. Sitting under `ci/` means only the current controller builds this repo and
+// posts the PR commit status, so a pull request is gated by exactly one real build.
 //
-// Why DinDBuild and not DockerfileBuild (which xipax uses):
-//   This project's test suite is `@QuarkusTest` with no JDBC URL, so it runs on Quarkus **Dev
-//   Services** — Testcontainers pulls up an ephemeral `postgres:16-alpine` container per run (see
-//   docs/HANDOFF.md). That needs a real container engine. `DockerfileBuild` drives the build inside a
-//   single BuildKit image build whose `test` stage is `./mvnw verify`; inside that build there is no
-//   Docker daemon for Testcontainers to talk to, so the suite cannot start its database and the test
-//   stage fails. `DinDBuild` runs on a Kubernetes pod with a privileged `docker:dind-rootless`
-//   sidecar and points the JDK container at it (`DOCKER_HOST=tcp://localhost:2376`, Ryuk disabled),
-//   so the suite runs unchanged. It also builds with the JDK 21 image this project requires.
-//
-// Why this file is at `ci/Jenkinsfile` and not the repository root: the org runs two Jenkins
-// controllers that each find pipelines by *path* — the legacy one reads `Jenkinsfile` in the root,
-// the current one `ci/Jenkinsfile`. Living under `ci/` means only the current controller builds this
-// repo and posts the PR commit status; a root file would make both controllers build every branch.
-//
-// What this pipeline does per run:
-//   * `./mvnw -PallTests clean install` — compile + the full 50-test suite against a Dev Services DB.
-//   * recordIssues — compile/javadoc/warnings aggregation.
-//   * on `master`: `clean deploy` of the jar to the org Nexus (via the Jenkins Maven settings).
-//
-// Note on the image the k8s deploy wants: DinDBuild publishes the **jar to Nexus**, not a container
-// image to Harbor. The api image (`ghcr.io/blekinge/hashbin-quarkus`, the native build) is produced
-// by the Quarkus Maven build and pushed by hand — see README "Container image". Automating that push
-// in Jenkins is a separate follow-up (DockerfileBuild can't host it — see the engine note above).
-//
-// Requires the Maven wrapper (`./mvnw`, `.mvn/wrapper/`) and the `allTests` Maven profile, both in
-// this repo; `DinDBuild` invokes `./mvnw`, so it is not optional here.
+// What each stage needs from the agent, and why this is one pod with two containers:
+//   * The test suite is `@QuarkusTest` with no JDBC URL, so Quarkus **Dev Services** brings up an
+//     ephemeral Postgres through **Testcontainers** — which needs a Docker daemon. (docs/HANDOFF.md)
+//   * The **native** image is produced by a `docker build` of a multi-stage recipe whose builder
+//     stage is the Mandrel/JDK-21 image, so `native-image` runs inside that stage — no nested
+//     container build, no GraalVM on the agent.
+// So: a `docker:dind-rootless` sidecar provides the Docker daemon (reachable at
+// tcp://localhost:2376 over TLS), the `jdk` container runs `./mvnw` (Testcontainers talks to the
+// daemon over the wire, so it needs no Docker CLI), and the `docker` container runs the `docker
+// build`/`push`. All containers share the Jenkins workspace volume, so the build context is the
+// checked-out source. This mirrors the pod `DinDBuild` uses; the Harbor naming and the
+// `jenkins-harbor` credential mirror what `DockerfileBuild` uses.
 
-library identifier: 'DinDBuild@master', retriever: modernSCM(scm: [$class: 'GitSCMSource', remote: 'https://sbprojects.statsbiblioteket.dk/stash/scm/ist/jenkins-shared.git', credentialsId: 'sbprojects-stash'],libraryPath: "Platform") _
+pipeline {
+    agent {
+        kubernetes {
+            yaml """
+                apiVersion: v1
+                kind: Pod
+                spec:
+                  containers:
+                  # jdk: runs ./mvnw — compile + the Dev Services / Testcontainers test suite.
+                  - name: jdk
+                    image: eclipse-temurin:21-jdk-ubi9-minimal
+                    command: [cat]
+                    tty: true
+                    env:
+                    # Point Testcontainers at the dind sidecar. Ryuk (the resource-reaper container)
+                    # is disabled here, as Testcontainers cannot always reach it across the socket.
+                    - name: DOCKER_HOST
+                      value: tcp://localhost:2376
+                    - name: DOCKER_CERT_PATH
+                      value: /docker-certs/client
+                    - name: DOCKER_TLS_VERIFY
+                      value: "1"
+                    - name: TESTCONTAINERS_RYUK_DISABLED
+                      value: "true"
+                    resources:
+                      requests: { memory: "1Gi" }
+                      limits:   { memory: "4Gi" }
+                    volumeMounts:
+                    - name: docker-certs
+                      mountPath: /docker-certs/client
+                      subPath: client
+                      readOnly: true
+                  # docker: the daemon the tests drive, and the client that builds+pushes the image.
+                  # The native build (Mandrel) runs a docker-in-docker build, so this is where the
+                  # memory-heavy compilation actually happens — give it room.
+                  - name: docker
+                    image: docker:dind-rootless
+                    tty: true
+                    securityContext:
+                      privileged: true
+                    env:
+                    - name: DOCKER_TLS_CERTDIR
+                      value: /docker-certs
+                    resources:
+                      requests: { memory: "4Gi" }
+                      limits:   { memory: "8Gi" }
+                    volumeMounts:
+                    - name: docker-certs
+                      mountPath: /docker-certs
+                  volumes:
+                  - name: docker-certs
+                    emptyDir: {}
+                """
+            retries 2
+        }
+    }
 
-DinDBuild {
-    // JDK 21 is mandatory: Quarkus 3.20's Hibernate build rejects Java 25 class files. DinDBuild
-    // defaults to this exact image, but pin it so the constraint is explicit and a library default
-    // change cannot silently break the build.
-    jdkImage = "eclipse-temurin:21-jdk-ubi9-minimal"
+    options {
+        disableConcurrentBuilds()
+        timeout(time: 45, unit: 'MINUTES')       // cold agent: pull base + Mandrel images, warm Maven, native-compile
+        buildDiscarder(logRotator(numToKeepStr: '5'))
+    }
+
+    stages {
+        stage('Build and test') {
+            steps {
+                container('jdk') {
+                    withMaven() {
+                        // The wrapper downloads Maven 3.9.16 and builds on the image's JDK 21 (the
+                        // only JDK Quarkus 3.20's Hibernate build accepts). -PallTests runs the full
+                        // suite; Dev Services starts Postgres on the sidecar daemon.
+                        sh './mvnw --batch-mode --no-transfer-progress -PallTests clean install'
+
+                        // Capture the version for the image tag now, while we have the wrapper and
+                        // JDK here; the image stage runs in the sidecar container, which has no JDK.
+                        def version = sh(returnStdout: true, script: '''
+                            ./mvnw --batch-mode --quiet --define forceStdout \
+                              --define expression=project.version help:evaluate
+                        ''').trim()
+                        env.PROJECT_VERSION = version
+                        echo "Project version: ${version}"
+                    }
+                }
+            }
+        }
+
+        stage('Build and push native image') {
+            steps {
+                container('docker') {
+                    script {
+                        // Image coordinates derived from the Bitbucket-for-Jenkins env vars, exactly
+                        // as DockerfileBuild does: harbor.tools.nyx.kb.dk/<project-key>/<repo>.
+                        def harborName = 'harbor.tools.nyx.kb.dk'
+                        def harborLibrary = "${env.BITBUCKET_PROJECT_KEY}".toLowerCase()
+                        def projectName = "${env.BITBUCKET_REPOSITORY}"
+
+                        def validBranchTag = (env.BRANCH_NAME ?: 'dev')
+                            .replace('/', '-').replace('+', '-').replace('_', '-')
+                            .toLowerCase().take(30).replaceAll(/-+$/, '')
+
+                        def imageVersion = "${env.PROJECT_VERSION}-${validBranchTag}-sha.${env.GIT_COMMIT}-build.${env.BUILD_NUMBER}"
+                        env.IMAGE_TAG = "${harborName}/${harborLibrary}/${projectName}:${imageVersion}"
+                        echo "Building and pushing ${env.IMAGE_TAG}"
+                    }
+
+                    // withMaven supplies $MVN_SETTINGS (the org settings.xml). Pass it as an optional
+                    // BuildKit secret so the recipe resolves through the org Nexus if MVN_SETTINGS is
+                    // reachable from this container; when it is not, the build still succeeds because
+                    // every dependency of this project is public (Maven Central). The recipe's secret
+                    // mount is optional, so omitting the flag never fails the build.
+                    withMaven() {
+                        sh '''
+                            set -eu
+                            export DOCKER_BUILDKIT=1
+                            SECRET=""
+                            if [ -n "${MVN_SETTINGS:-}" ] && [ -f "${MVN_SETTINGS}" ]; then
+                              SECRET="--secret id=settings.xml,src=${MVN_SETTINGS}"
+                            fi
+                            # shellcheck disable=SC2086
+                            docker build \
+                              ${SECRET} \
+                              --target final \
+                              --tag "$IMAGE_TAG" \
+                              --file src/main/docker/Dockerfile.native-multi-stage \
+                              .
+                        '''
+                    }
+
+                    withCredentials([usernamePassword(credentialsId: 'jenkins-harbor',
+                                                      usernameVariable: 'USERNAME',
+                                                      passwordVariable: 'PASSWORD')]) {
+                        sh '''
+                            set -eu
+                            printf '%s' "$PASSWORD" | docker login harbor.tools.nyx.kb.dk \
+                              --username "$USERNAME" --password-stdin
+                            docker push "$IMAGE_TAG"
+                        '''
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "Published ${env.IMAGE_TAG}"
+        }
+    }
 }

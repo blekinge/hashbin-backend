@@ -1,0 +1,49 @@
+# syntax=docker/dockerfile:1
+####
+# CI build recipe for the hashbin-quarkus **native** api image. Driven directly by the
+# self-contained `ci/Jenkinsfile` (no shared-library contract, so — unlike the sibling
+# Dockerfile.ci recipes — it does not need the five initial/setup/compile/test/final stages).
+#
+#   build stage : compile the native executable inside the Mandrel (JDK 21) builder image.
+#                 `native-image` runs *inside* this stage, so we pass
+#                 `-Dquarkus.native.container-build=false` (no nested container build).
+#   final stage : copy that one binary onto a minimal base; this is what gets tagged/pushed.
+#
+# JDK 21 is mandatory (Quarkus 3.20 Hibernate rejects Java 25 class files); the Mandrel
+# `jdk-21` tag provides it, so no version comes from the host.
+#
+# Maven deps resolve from Maven Central (every dependency of this project is public). If an
+# internal Nexus dependency is ever added, pass the org settings as a BuildKit secret and it
+# will be wired in below — the mount is optional and skipped when not supplied:
+#   docker build --secret id=settings.xml,src=$MVN_SETTINGS --target final -t <image> \
+#     -f src/main/docker/Dockerfile.native-multi-stage .
+#
+# Runs as non-root UID 185 on :8080, matching the Deployment's securityContext / containerPort.
+####
+
+# ---- build: native executable, compiled in the Mandrel/JDK-21 image -----------------
+FROM quay.io/quarkus/ubi9-quarkus-mandrel-builder-image:jdk-21 AS build
+USER root
+WORKDIR /build
+# Wire the (optional) org Nexus settings so ./mvnw can resolve internal deps when supplied.
+RUN mkdir -p "$HOME/.m2" && ln -sf /run/secrets/settings.xml "$HOME/.m2/settings.xml"
+# Copy the source tree (target/ etc. excluded by .dockerignore), then build the runner.
+COPY . .
+RUN --mount=type=secret,id=settings.xml \
+    --mount=type=secret,id=settings-security.xml \
+    chmod +x ./mvnw && \
+    ./mvnw --batch-mode --no-transfer-progress --errors \
+      -P '!web' \
+      -Dquarkus.native.enabled=true \
+      -Dquarkus.native.container-build=false \
+      -Dquarkus.package.jar.enabled=false \
+      -DskipTests package
+
+# ---- final: minimal runtime image (this is what gets tagged & pushed) ---------------
+FROM registry.access.redhat.com/ubi9/ubi-minimal:9.5 AS final
+WORKDIR /work/
+COPY --from=build --chown=185 /build/target/*-runner /work/application
+RUN chmod 775 /work
+EXPOSE 8080
+USER 185
+CMD ["./application", "-Dquarkus.http.host=0.0.0.0"]

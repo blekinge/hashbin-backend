@@ -110,6 +110,15 @@ Tests: **50/50 green** (`mvn test`).
   (the frontend `PAGE_SIZE`) and is capped at **100** (the old direct-view read
   had no cap); `limit`/`offset` are validated manually to keep the `{"error":…}`
   400 shape consistent with `/verify`.
+- **Native serialization: the response DTOs are `@RegisterForReflection`.** Every resource
+  returns `Response.ok(<dto>)`, so the DTO type is not in a method signature and Quarkus' native
+  build does NOT auto-register it for Jackson. Without the annotation the **JVM** suite is green
+  (runtime reflection) but the **native** image serializes an empty `200 {}` (e.g. `/api/stamp`
+  writes the row, signs it, returns nothing). Applies to `TimestampView`, `TimestampPublicView`,
+  `AuthResponse`, `MeView`. JDK-type bodies (`HealthResource`, `Errors` → `Map.of(...)`) are
+  unaffected. **The 50 tests are JVM-only `@QuarkusTest`, so they cannot catch this class of
+  regression** — verified instead by running the built native image (see "Container image");
+  a permanent fix would be a `@QuarkusIntegrationTest` against the native image.
 
 ## Build / run / test (copy-paste)
 
@@ -151,28 +160,42 @@ ephemeral Dev Services DB (no DB creds to manage), but the dev HMAC/JWT secrets 
   Docker-vs-Podman API problem above affects Testcontainers/Dev Services, not this image
   build, which shells out to the engine CLI — but the host is pinned to Podman regardless.)
 
-## CI (Jenkins, shared lib `DinDBuild`)
+## CI (Jenkins — self-contained, no shared library)
 
-- Pipeline lives at **`ci/Jenkinsfile`** (not repo root — the org runs two controllers that find
-  pipelines by path; `ci/Jenkinsfile` is the current controller's Script Path). It calls the
-  Bitbucket `jenkins-shared` `Platform` lib's **`DinDBuild`**.
-- **Why `DinDBuild`, not `DockerfileBuild`** (which the sibling `xipax` uses): our tests are
-  `@QuarkusTest` on **Dev Services** (Testcontainers starts Postgres), so they need a real
-  container engine. `DockerfileBuild` runs `./mvnw verify` *inside* a BuildKit image build with
-  no Docker daemon for Testcontainers, so the DB never starts and the test stage fails.
-  `DinDBuild` adds a privileged `docker:dind-rootless` sidecar (`DOCKER_HOST=tcp://localhost:2376`,
-  Ryuk disabled) and builds on **JDK 21** (`eclipse-temurin:21-jdk-ubi9-minimal`, pinned in the
-  Jenkinsfile for the same reason as the local-build gotcha above).
+- Pipeline at **`ci/Jenkinsfile`** (not repo root — the org runs two controllers that find
+  pipelines by path; `ci/Jenkinsfile` is the current controller's Script Path). It writes the
+  whole pipeline inline rather than calling the `jenkins-shared` `Platform` lib.
+- **Why inline, not `DockerfileBuild` (xipax) or `DinDBuild`:** neither library does both jobs this
+  project needs. `DockerfileBuild` drives a 5-stage Dockerfile and runs `mvn verify` *inside* a
+  BuildKit image build → **no Docker daemon for Testcontainers**, so the Dev Services tests can't
+  start Postgres. `DinDBuild` runs the tests with a `docker:dind-rootless` sidecar but only
+  publishes the **jar to Nexus**, never an image. So `ci/Jenkinsfile` does both in one pod.
+- **Agent:** a Kubernetes pod with two containers — `jdk` (`eclipse-temurin:21-jdk-ubi9-minimal`,
+  builds + tests via `./mvnw`, Testcontainers pointed at the sidecar through
+  `DOCKER_HOST=tcp://localhost:2376`, Ryuk disabled) and `docker` (`docker:dind-rootless`,
+  privileged; runs the `docker build`/`push`). Pod model mirrors `DinDBuild`; Harbor naming +
+  the `jenkins-harbor` credential mirror `DockerfileBuild`.
+- **Stages:** (1) `./mvnw -PallTests clean install` → JVM compile + the 50-test suite on a Dev
+  Services DB. (2) `docker build` of **`src/main/docker/Dockerfile.native-multi-stage`** → the
+  native binary compiles **inside the Mandrel/JDK‑21 builder stage** (`native-image` runs there, so
+  `quarkus.native.container-build=false` — no nested container build, no GraalVM on the agent),
+  then a minimal runtime image is pushed to `harbor.tools.nyx.kb.dk/<BITBUCKET_PROJECT_KEY>/
+  <BITBUCKET_REPOSITORY>:<version>-<branch>-sha.<sha>-build.<n>`.
 - **Prereqs the pipeline assumes** (all committed): Maven wrapper `./mvnw` + `.mvn/wrapper/`
-  (`DinDBuild` invokes `./mvnw`, not `mvn`), and a no-op **`allTests`** Maven profile
-  (`DinDBuild` runs `./mvnw -PallTests clean install`).
-- **What it publishes:** the **jar to Nexus** on `master` (via Jenkins Maven settings). It does
-  **not** push a container image to Harbor. The api image stays the hand-built native
-  `mvn -Dnative … package` flow (README "Container image"). Automating that image push in
-  Jenkins is an open follow-up — `DockerfileBuild` can't host it (engine note above), so it would
-  need its own pipeline that runs the Quarkus container build with a Docker engine available.
-- **Local parity check** (rootless Podman stands in for the DinD sidecar):
-  `./mvnw -PallTests clean install` → 50 tests, BUILD SUCCESS.
+  (`only-script`, Maven 3.9.16 — the pipeline invokes `./mvnw`, not `mvn`), a no-op **`allTests`**
+  profile, and a **`.dockerignore`** (trims the build context; `target/` is kept so the
+  single-stage hand-build Dockerfiles still work).
+- **Registry split (deliberate):** CI pushes the **org Harbor** image (xipax-style). The
+  **`ghcr.io/blekinge/hashbin-quarkus`** image that `hashbin-deploy` references is the *OSS /
+  local* path, built by hand with `mvn -Dnative … package` (README "Container image"). Two
+  registries, same native image.
+- **Local parity checks** (rootless Podman stands in for the sidecar / `docker build`):
+  `./mvnw -PallTests clean install` → 50 tests, BUILD SUCCESS; `buildah build --target final
+  -f src/main/docker/Dockerfile.native-multi-stage` → native image builds.
+- **Unverified in this environment:** the actual Jenkins/Kubernetes run (no Jenkins controller
+  here), the `jenkins-harbor` credential, and `BITBUCKET_PROJECT_KEY`/`BITBUCKET_REPOSITORY`
+  env vars — these exist only on the org controller. The pipeline mirrors the working shared-lib
+  patterns but has not executed there end-to-end.
 
 ## What is LEFT to do
 

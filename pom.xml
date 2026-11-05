@@ -193,12 +193,11 @@
       </build>
     </profile>
 
-    <!-- The DinDBuild Jenkins pipeline invokes `./mvnw -PallTests clean install` (see
-         ci/Jenkinsfile). All of this project's tests already run by default, so this
-         profile is a documented no-op kept only to satisfy that convention and keep
-         `-PallTests` from warning. If a lighter default suite is ever introduced
-         (e.g. excluding the container-backed Dev Services tests), this profile is
-         where the full set gets re-enabled. -->
+    <!-- The Jenkins pipeline runs `./mvnw -PallTests clean install` (see ci/Jenkinsfile). All of
+         this project's tests already run by default, so this profile is a documented no-op kept
+         only to satisfy that convention and keep `-PallTests` from warning. If a lighter default
+         suite is ever introduced (e.g. excluding the container-backed Dev Services tests), this
+         profile is where the full set gets re-enabled. -->
     <profile>
       <id>allTests</id>
     </profile>

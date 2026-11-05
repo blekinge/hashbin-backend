@@ -111,32 +111,37 @@ as a separate nginx pod). Drop it to bundle the UI into the same image.
 `src/main/docker/Dockerfile.jvm`. The `Dockerfile.native`/`Dockerfile.jvm` templates run as
 non-root UID 185 on port 8080, matching the Deployment's `securityContext`/`containerPort`.
 
-> Not wired into CI on purpose — native builds are heavy (several minutes + a few GB), so
-> run the command above by hand or wire a workflow later. A `web` image (nginx) is built
-> from the sibling `../hashbin-web/Dockerfile`.
+> This `mvn` command is the manual / local build (the `ghcr.io/blekinge/...` path). CI builds the
+> same native image a different way — a multi-stage `docker build` pushed to the org **Harbor** —
+> see "CI (Jenkins)" below. A separate `web` image (nginx) is built from `../hashbin-web/Dockerfile`.
 
 ## CI (Jenkins)
 
-CI is the org's shared-library pipeline at [`ci/Jenkinsfile`](ci/Jenkinsfile), using
-`DinDBuild` from the Bitbucket `jenkins-shared` `Platform` library.
+CI is a **self-contained pipeline** at [`ci/Jenkinsfile`](ci/Jenkinsfile) — no shared-library
+calls. It runs in a Kubernetes pod with two containers: an **JDK 21** container that builds and
+tests, and a **`docker:dind-rootless`** sidecar that provides a Docker daemon.
 
-```groovy
-DinDBuild { jdkImage = "eclipse-temurin:21-jdk-ubi9-minimal" }
-```
+Two stages:
 
-Each run does `./mvnw -PallTests clean install` — compile + the full 50-test suite — then
-records issues and (on `master`) deploys the jar to Nexus.
+1. **Build and test** — `./mvnw -PallTests clean install`. The suite is `@QuarkusTest` on
+   **Dev Services**, so Testcontainers brings up an ephemeral Postgres on the sidecar
+   (`DOCKER_HOST=tcp://localhost:2376`, Ryuk disabled). All 50 tests run against it.
+2. **Build and push native image** — a `docker build` of
+   [`src/main/docker/Dockerfile.native-multi-stage`](src/main/docker/Dockerfile.native-multi-stage):
+   the native binary is compiled inside the **Mandrel/JDK‑21** builder stage (no GraalVM on the
+   agent, no nested container build), then a minimal runtime image is tagged and pushed to the org
+   **Harbor** as `harbor.tools.nyx.kb.dk/<BITBUCKET_PROJECT_KEY>/<BITBUCKET_REPOSITORY>:<version>-<branch>-sha.<sha>-build.<n>`,
+   using the `jenkins-harbor` credential.
 
-**Why `DinDBuild` and not `DockerfileBuild`:** the tests use Quarkus **Dev Services**
-(Testcontainers starts Postgres), so they need a container engine. `DockerfileBuild` runs the
-suite *inside* a BuildKit image build, where there is no Docker daemon for Testcontainers, so
-the test stage would fail. `DinDBuild` runs in a Kubernetes pod with a `docker:dind-rootless`
-sidecar and builds on the required **JDK 21**. It needs the committed Maven wrapper (`./mvnw`)
-and the `allTests` profile.
+**Why it isn't the shared `DockerfileBuild` / `DinDBuild` libraries:** `DockerfileBuild` (what the
+sibling `xipax` uses) runs the suite *inside* a BuildKit image build, where there is no Docker
+daemon for Testcontainers, so this project's DB-backed tests can't run; `DinDBuild` runs the tests
+with a DinD sidecar but only publishes the **jar to Nexus**, not a container image. Neither alone
+does both, so the pipeline here does test **and** image push in one run. It reuses the same agent
+model (`DinDBuild`) and the same Harbor naming + `jenkins-harbor` credential (`DockerfileBuild`).
 
-> Like the container image, the **api image push to a registry is not automated** — `DinDBuild`
-> publishes the jar to Nexus, not an OCI image. See "Container image" above for the hand-built
-> native image that `hashbin-deploy` pulls.
+The pipeline requires the committed Maven wrapper (`./mvnw`, `.mvn/wrapper/`) and the `allTests`
+Maven profile.
 
 ## Configuration
 
@@ -192,8 +197,8 @@ It patches a throwaway copy of the CLI's `API_BASE` and never edits the original
 
 ```
 pom.xml
-ci/Jenkinsfile                        # Jenkins CI (shared-lib DinDBuild: build + 50 tests + jar→Nexus)
-mvnw / .mvn/wrapper/                  # Maven wrapper (DinDBuild invokes ./mvnw)
+ci/Jenkinsfile                        # self-contained Jenkins CI: test via DinD + push native image to Harbor
+mvnw / .mvn/wrapper/                  # Maven wrapper (the pipeline invokes ./mvnw)
 scripts/cli-compat-check.sh         # Phase 5: drives the real CLI against this service
 src/main/java/net/hashbin/
   model/Timestamp.java              # JPA/Panache entity -> "timestamps" table
@@ -223,7 +228,8 @@ src/main/resources/
   db/migration/V1__create_timestamps.sql
   db/migration/V2__create_app_users.sql
 src/main/docker/
-  Dockerfile.native               # native runtime image (deploy pulls this)
+  Dockerfile.native               # native runtime image, hand-built (deploy pulls this)
+  Dockerfile.native-multi-stage   # native image BUILT FROM SOURCE — what CI docker-builds and pushes
   Dockerfile.jvm                  # JVM fallback image (GraalVM-free smoke builds)
 src/test/java/net/hashbin/
   HealthResourceTest.java

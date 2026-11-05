@@ -9,6 +9,7 @@ import java.util.UUID;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 
+import io.quarkus.runtime.annotations.RegisterForReflection;
 import net.hashbin.model.Timestamp;
 
 /**
@@ -19,7 +20,13 @@ import net.hashbin.model.Timestamp;
  * <p>{@code created_at} is rendered as ISO-8601 UTC with millisecond precision
  * and a trailing {@code Z} (e.g. {@code 2026-11-05T08:17:11.717Z}) — identical to
  * the string that was signed, so clients can recompute the signature.
+ *
+ * <p>{@link RegisterForReflection} is required: the resources build this DTO and
+ * return it inside a JAX-RS {@code Response}, so its type is not visible in a
+ * method signature for Quarkus to register automatically. Without it the JVM tests
+ * pass (runtime reflection) but the **native** image serializes an empty {@code {}}.
  */
+@RegisterForReflection
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 public class TimestampView {
 
