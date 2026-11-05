@@ -21,6 +21,9 @@ pages: same routes (`/api/stamp`, `/api/verify`, `/api/my-timestamps`,
 > `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me` endpoints
 > to fully replace Supabase in the browser.
 
+> **Continuity:** see [`docs/HANDOFF.md`](docs/HANDOFF.md) for decisions, gotchas,
+> and the remaining-work checklist (useful when resuming in a new session).
+
 ## Requirements
 
 - **Java 21** (Temurin). The machine default here is Java 25, which Quarkus 3.20's
