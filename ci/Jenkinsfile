@@ -119,14 +119,16 @@ pipeline {
 
     options {
         disableConcurrentBuilds()
-        timeout(time: 45, unit: 'MINUTES')       // cold agent: pull base + Mandrel images, warm Maven, native-compile
+        timeout(time: 45, unit: 'MINUTES')       // generous headroom; covers the native path when BUILD_NATIVE=true
         buildDiscarder(logRotator(numToKeepStr: '5'))
     }
 
     environment {
-        // Native image build/push is temporarily DISABLED so CI stays fast while the pipeline
-        // stabilises (the native compile is the slow, multi-minute stage). Flip to 'true' to
-        // re-enable stage 2. Tests still run against the postgres sidecar regardless.
+        // Image kind for the build-and-push stage. Default builds a fast JVM image (Maven package
+        // + JRE). The long-term target is a native image: flip to 'true' to build
+        // Dockerfile.native-multi-stage (Mandrel native compile) instead. Both branches push to
+        // Harbor; only the build time differs (native is the slow, multi-minute one). Tests run
+        // against the postgres sidecar regardless of this flag.
         BUILD_NATIVE = 'false'
     }
 
@@ -170,8 +172,7 @@ pipeline {
             }
         }
 
-        stage('Build and push native image') {
-            when { expression { return env.BUILD_NATIVE == 'true' } }
+        stage('Build and push image') {
             steps {
                 container('docker') {
                     script {
@@ -189,17 +190,25 @@ pipeline {
 
                         def imageVersion = "${env.PROJECT_VERSION}-${validBranchTag}-sha.${env.GIT_COMMIT}-build.${env.BUILD_NUMBER}"
                         env.IMAGE_TAG = "${harborName}/${harborLibrary}/${projectName}:${imageVersion}"
-                        echo "Building and pushing ${env.IMAGE_TAG}"
+
+                        // Pick the image recipe from the flag. Both are source builds with a `final`
+                        // stage; JVM is the fast default, native is the (slow) long-term target.
+                        env.BUILD_DOCKERFILE = (env.BUILD_NATIVE == 'true') \
+                            ? 'src/main/docker/Dockerfile.native-multi-stage' \
+                            : 'src/main/docker/Dockerfile.jvm-multi-stage'
+                        echo "Building and pushing ${env.IMAGE_TAG} (${env.BUILD_NATIVE == 'true' ? 'native' : 'JVM'} image from ${env.BUILD_DOCKERFILE})"
                     }
 
-                    // Build from source. DOCKER_BUILDKIT=1 honours `# syntax=docker/dockerfile:1`
-                    // and enables the modern builder. The native binary compiles inside the Mandrel
-                    // builder stage, so no GraalVM and no nested container build.
+                    // Build from source so the pushed image never depends on a locally built
+                    // artifact. DOCKER_BUILDKIT=1 (set by the prelude) honours
+                    // `# syntax=docker/dockerfile:1`. For the JVM image, Maven packages the fast-jar
+                    // in the build stage; for the native image, the binary compiles inside the
+                    // Mandrel builder stage — neither needs a JDK or nested container in this step.
                     sh dockerClientEnv() + '''
                         docker build \
                           --target final \
                           --tag "$IMAGE_TAG" \
-                          --file src/main/docker/Dockerfile.native-multi-stage \
+                          --file "$BUILD_DOCKERFILE" \
                           .
                     '''
 
@@ -219,13 +228,7 @@ pipeline {
 
     post {
         success {
-            script {
-                if (env.IMAGE_TAG) {
-                    echo "Published ${env.IMAGE_TAG}"
-                } else {
-                    echo "Build + tests passed. Native image build skipped (BUILD_NATIVE=${env.BUILD_NATIVE})."
-                }
-            }
+            echo "Published ${env.IMAGE_TAG}"
         }
     }
 }

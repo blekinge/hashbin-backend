@@ -167,11 +167,13 @@ ephemeral Dev Services DB (no DB creds to manage), but the dev HMAC/JWT secrets 
   - `docker` (`docker:dind-rootless`, privileged) — used **only** by the image stage; the `docker`
     CLI there drives its own local unix socket (no `DOCKER_HOST` override, so no HTTP-to-TLS error).
 - **Stages:** (1) `./mvnw -PallTests clean install` → JVM compile + the 50-test suite on the
-  sidecar DB. (2) `docker build` of **`src/main/docker/Dockerfile.native-multi-stage`** → the native
-  binary compiles **inside the Mandrel/JDK‑21 builder stage** (`native-image` runs there — no
-  GraalVM on the agent), then a minimal runtime image is pushed to
-  `harbor.tools.nyx.kb.dk/blekinge/hashbin-quarkus:<version>-<branch>-sha.<sha>-build.<n>` (the
-  library segment `blekinge` is pinned, since the Bitbucket env vars are null on the GitHub job).
+  sidecar DB. (2) `docker build` + push to `harbor.tools.nyx.kb.dk/blekinge/hashbin-quarkus:<version>-<branch>-sha.<sha>-build.<n>`
+  (library segment `blekinge` is pinned, since the Bitbucket env vars are null on the GitHub job).
+  The image kind is chosen by the `BUILD_NATIVE` env flag in the Jenkinsfile: **default `false` → JVM
+  image** from `src/main/docker/Dockerfile.jvm-multi-stage` (Maven fast-jar build on a JRE base,
+  fast), so CI stays quick while the pipeline settles. Flip `BUILD_NATIVE = 'true'` to build
+  **`Dockerfile.native-multi-stage`** instead (native binary compiled inside
+  the Mandrel/JDK‑21 builder stage — the slow, multi‑minute path, the long‑term target). Both push.
 - **Prereqs the pipeline assumes** (all committed): Maven wrapper `./mvnw` + `.mvn/wrapper/`
   (`only-script`, Maven 3.9.16 — the pipeline invokes `./mvnw`, not `mvn`), a no-op **`allTests`**
   profile, and a **`.dockerignore`** (trims the build context; `target/` is kept so the single-stage
@@ -181,8 +183,9 @@ ephemeral Dev Services DB (no DB creds to manage), but the dev HMAC/JWT secrets 
   path, built by hand with `mvn -Dnative … package` (README "Container image"). Two registries, same
   native image.
 - **Local parity checks:** `./mvnw -PallTests clean install` (against a local engine/sidecar) →
-  50 tests; `buildah build --target final -f src/main/docker/Dockerfile.native-multi-stage` → native
-  image builds + runs (`/api/health` ok). The Jenkins-specific bits (DinD sidecar, `jenkins-harbor`
+  50 tests; `buildah bud --target final -f src/main/docker/Dockerfile.jvm-multi-stage` → JVM image
+  builds + runs (boots on JVM, Flyway migrates against a real `postgres:16-alpine`, all features load).
+  The Jenkins-specific bits (DinD sidecar, `jenkins-harbor`
   credential, Harbor push) can't be exercised locally.
 - **Unverified in this environment:** the actual Jenkins/Kubernetes run (no Jenkins controller
   here), the `jenkins-harbor` credential, and `BITBUCKET_PROJECT_KEY`/`BITBUCKET_REPOSITORY`
