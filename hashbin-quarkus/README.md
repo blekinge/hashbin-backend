@@ -100,11 +100,35 @@ Endpoints:
 mvn test     # Dev Services starts an ephemeral Postgres via Testcontainers (50 tests)
 ```
 
-> Known flake: `MyTimestampsResourceTest.tamperedTokenIsUnauthorized` intermittently
-> fails (~40% of runs) — flipping the *last* base64url character of a JWT signature
-> often decodes to identical bytes, so the token still verifies and returns 200. It is
-> a defect in the test's tamper, not the service. A robust fix is to replace the whole
-> signature segment rather than one character.
+> `MyTimestampsResourceTest.tamperedTokenIsUnauthorized` is intentionally robust: it
+> replaces the **whole** JWT signature segment to force an invalid token. (Flipping a
+> single base64url character — a common shortcut — is unreliable: a trailing character
+> can encode fewer than 8 significant bits and decode to the identical bytes, leaving a
+> valid token; that made the original test flaky.)
+
+## OpenAPI artifact
+
+`quarkus.smallrye-openapi.store-schema-directory` makes the `package` build write the
+generated document to `target/generated-openapi/{openapi.yaml,openapi.json}`. A
+classifier'd `maven-jar-plugin` execution then bundles those into a **secondary
+artifact**:
+
+```
+hashbin-quarkus-<version>-openapi.jar     # contains openapi.yaml + openapi.json at the root
+```
+
+It is attached to the build and installed/deployed alongside the service jar, so API
+consumers and code generators can depend on the exact spec this service produced:
+
+```xml
+<dependency>
+  <groupId>net.hashbin</groupId>
+  <artifactId>hashbin-quarkus</artifactId>
+  <version>1.0.0-SNAPSHOT</version>
+  <classifier>openapi</classifier>
+  <type>jar</type>
+</dependency>
+```
 
 ## Container image
 

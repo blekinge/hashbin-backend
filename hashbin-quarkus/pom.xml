@@ -137,6 +137,34 @@
           </systemPropertyVariables>
         </configuration>
       </plugin>
+
+      <!-- Secondary artifact: a classifier'd jar packaging the build-generated
+           OpenAPI document (target/generated-openapi/*, produced by the quarkus
+           build goal above). Installed/deployed alongside the app jar as
+           hashbin-quarkus-<version>-openapi.jar so API consumers / codegen can
+           depend on the exact spec this service ships. -->
+      <plugin>
+        <artifactId>maven-jar-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>openapi-jar</id>
+            <phase>package</phase>
+            <goals>
+              <goal>jar</goal>
+            </goals>
+            <configuration>
+              <!-- Jar the generated spec directory instead of compiled classes. -->
+              <classesDirectory>${project.build.directory}/generated-openapi</classesDirectory>
+              <classifier>openapi</classifier>
+              <skipIfEmpty>true</skipIfEmpty>
+              <archive>
+                <!-- A spec bundle isn't classpath code; keep it to just the documents. -->
+                <addMavenDescriptor>false</addMavenDescriptor>
+              </archive>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
     </plugins>
   </build>
 
