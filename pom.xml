@@ -86,6 +86,15 @@
       <artifactId>nimbus-jose-jwt</artifactId>
     </dependency>
 
+    <!-- Container-image build (Docker/Podman). Build-time only: it contributes no
+         runtime code, so `mvn test` / `mvn package` behave exactly as before. It
+         makes `mvn package` able to produce the native image that hashbin-deploy
+         pulls (ghcr.io/blekinge/hashbin-quarkus) — see README "Container image". -->
+    <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-container-image-docker</artifactId>
+    </dependency>
+
     <!-- Test -->
     <dependency>
       <groupId>io.quarkus</groupId>
@@ -148,6 +157,11 @@
       <properties>
         <quarkus.native.enabled>true</quarkus.native.enabled>
         <quarkus.package.jar.enabled>false</quarkus.package.jar.enabled>
+        <!-- Compile the native binary inside a Mandrel container, so no local
+             GraalVM/Mandrel install is required (this host has none). Needs only a
+             container engine (Docker, or Podman via the flags in README).
+             Image name/registry live in application.properties (apply to JVM too). -->
+        <quarkus.native.container-build>true</quarkus.native.container-build>
       </properties>
     </profile>
 
@@ -177,6 +191,16 @@
           </resource>
         </resources>
       </build>
+    </profile>
+
+    <!-- The DinDBuild Jenkins pipeline invokes `./mvnw -PallTests clean install` (see
+         ci/Jenkinsfile). All of this project's tests already run by default, so this
+         profile is a documented no-op kept only to satisfy that convention and keep
+         `-PallTests` from warning. If a lighter default suite is ever introduced
+         (e.g. excluding the container-backed Dev Services tests), this profile is
+         where the full set gets re-enabled. -->
+    <profile>
+      <id>allTests</id>
     </profile>
   </profiles>
 </project>

@@ -132,6 +132,48 @@ Required env for production: `QUARKUS_DATASOURCE_JDBC_URL`, `QUARKUS_DATASOURCE_
 ephemeral Dev Services DB (no DB creds to manage), but the dev HMAC/JWT secrets in
 `application.properties` are insecure defaults — override them in production.
 
+## Container image (wired 2026-11-05)
+
+- The build produces the native image `hashbin-deploy` pulls. `quarkus-container-image-docker`
+  (a build-time-only extension, so `mvn test` / `mvn package` are unchanged) is in the pom;
+  **image path** (`ghcr.io/blekinge/hashbin-quarkus`) lives in `application.properties`, the
+  **tag** is passed per release.
+- The `native` Maven profile sets `quarkus.native.container-build=true`: the native binary is
+  compiled inside a **Mandrel builder container**, so no local GraalVM/Mandrel is required
+  (this host has none). Needs only a container engine.
+- `src/main/docker/Dockerfile.native` and `Dockerfile.jvm` are required by the extension (it
+  errors "Unable to find root of Dockerfile files" without them). Both run **non-root (UID
+  185)** on **:8080** to match the Deployment's `securityContext`/`containerPort`.
+- **No CI on purpose** (decision): native builds are heavy (minutes + a few GB). The command
+  is in the README "Container image" section. The web image is built from `../hashbin-web`.
+- On **Podman** (this host) add `-Dquarkus.docker.executable-name=podman
+  -Dquarkus.native.container-runtime=podman` and export the Podman `DOCKER_HOST`. (The
+  Docker-vs-Podman API problem above affects Testcontainers/Dev Services, not this image
+  build, which shells out to the engine CLI — but the host is pinned to Podman regardless.)
+
+## CI (Jenkins, shared lib `DinDBuild`)
+
+- Pipeline lives at **`ci/Jenkinsfile`** (not repo root — the org runs two controllers that find
+  pipelines by path; `ci/Jenkinsfile` is the current controller's Script Path). It calls the
+  Bitbucket `jenkins-shared` `Platform` lib's **`DinDBuild`**.
+- **Why `DinDBuild`, not `DockerfileBuild`** (which the sibling `xipax` uses): our tests are
+  `@QuarkusTest` on **Dev Services** (Testcontainers starts Postgres), so they need a real
+  container engine. `DockerfileBuild` runs `./mvnw verify` *inside* a BuildKit image build with
+  no Docker daemon for Testcontainers, so the DB never starts and the test stage fails.
+  `DinDBuild` adds a privileged `docker:dind-rootless` sidecar (`DOCKER_HOST=tcp://localhost:2376`,
+  Ryuk disabled) and builds on **JDK 21** (`eclipse-temurin:21-jdk-ubi9-minimal`, pinned in the
+  Jenkinsfile for the same reason as the local-build gotcha above).
+- **Prereqs the pipeline assumes** (all committed): Maven wrapper `./mvnw` + `.mvn/wrapper/`
+  (`DinDBuild` invokes `./mvnw`, not `mvn`), and a no-op **`allTests`** Maven profile
+  (`DinDBuild` runs `./mvnw -PallTests clean install`).
+- **What it publishes:** the **jar to Nexus** on `master` (via Jenkins Maven settings). It does
+  **not** push a container image to Harbor. The api image stays the hand-built native
+  `mvn -Dnative … package` flow (README "Container image"). Automating that image push in
+  Jenkins is an open follow-up — `DockerfileBuild` can't host it (engine note above), so it would
+  need its own pipeline that runs the Quarkus container build with a Docker engine available.
+- **Local parity check** (rootless Podman stands in for the DinD sidecar):
+  `./mvnw -PallTests clean install` → 50 tests, BUILD SUCCESS.
+
 ## What is LEFT to do
 
 The web frontend is **done** as a separate, dependency-free static app in the sibling

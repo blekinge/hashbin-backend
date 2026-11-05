@@ -79,6 +79,65 @@ Endpoints:
 mvn test     # Dev Services starts an ephemeral Postgres (Podman, via ~/.testcontainers.properties)
 ```
 
+## Container image
+
+The build can produce the native container image that [`hashbin-deploy`](../hashbin-deploy)
+pulls (`ghcr.io/blekinge/hashbin-quarkus`). `quarkus-container-image-docker` is wired into
+the pom; the image repo path lives in `application.properties`, the tag is set per release.
+The native binary is compiled **inside a Mandrel builder container**
+(`quarkus.native.container-build=true` in the `native` profile), so **no local GraalVM is
+needed** — only a container engine.
+
+**Native image (what deploy uses), via Docker:**
+
+```bash
+mvn -P '!web' -Dnative -DskipTests \
+    -Dquarkus.container-image.build=true -Dquarkus.container-image.push=true \
+    -Dquarkus.container-image.tag=1.0.0 package
+# → ghcr.io/blekinge/hashbin-quarkus:1.0.0
+```
+
+On this host the engine is **rootless Podman** — add these flags (and export
+`DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock`):
+
+```bash
+    -Dquarkus.docker.executable-name=podman -Dquarkus.native.container-runtime=podman
+```
+
+`-P '!web'` builds the API without the sibling frontend baked in (the deploy serves `web`
+as a separate nginx pod). Drop it to bundle the UI into the same image.
+
+**JVM image (quick, GraalVM-free smoke build):** same command without `-Dnative`, using
+`src/main/docker/Dockerfile.jvm`. The `Dockerfile.native`/`Dockerfile.jvm` templates run as
+non-root UID 185 on port 8080, matching the Deployment's `securityContext`/`containerPort`.
+
+> Not wired into CI on purpose — native builds are heavy (several minutes + a few GB), so
+> run the command above by hand or wire a workflow later. A `web` image (nginx) is built
+> from the sibling `../hashbin-web/Dockerfile`.
+
+## CI (Jenkins)
+
+CI is the org's shared-library pipeline at [`ci/Jenkinsfile`](ci/Jenkinsfile), using
+`DinDBuild` from the Bitbucket `jenkins-shared` `Platform` library.
+
+```groovy
+DinDBuild { jdkImage = "eclipse-temurin:21-jdk-ubi9-minimal" }
+```
+
+Each run does `./mvnw -PallTests clean install` — compile + the full 50-test suite — then
+records issues and (on `master`) deploys the jar to Nexus.
+
+**Why `DinDBuild` and not `DockerfileBuild`:** the tests use Quarkus **Dev Services**
+(Testcontainers starts Postgres), so they need a container engine. `DockerfileBuild` runs the
+suite *inside* a BuildKit image build, where there is no Docker daemon for Testcontainers, so
+the test stage would fail. `DinDBuild` runs in a Kubernetes pod with a `docker:dind-rootless`
+sidecar and builds on the required **JDK 21**. It needs the committed Maven wrapper (`./mvnw`)
+and the `allTests` profile.
+
+> Like the container image, the **api image push to a registry is not automated** — `DinDBuild`
+> publishes the jar to Nexus, not an OCI image. See "Container image" above for the hand-built
+> native image that `hashbin-deploy` pulls.
+
 ## Configuration
 
 | Property | Env var (prod) | Purpose |
@@ -133,6 +192,8 @@ It patches a throwaway copy of the CLI's `API_BASE` and never edits the original
 
 ```
 pom.xml
+ci/Jenkinsfile                        # Jenkins CI (shared-lib DinDBuild: build + 50 tests + jar→Nexus)
+mvnw / .mvn/wrapper/                  # Maven wrapper (DinDBuild invokes ./mvnw)
 scripts/cli-compat-check.sh         # Phase 5: drives the real CLI against this service
 src/main/java/net/hashbin/
   model/Timestamp.java              # JPA/Panache entity -> "timestamps" table
@@ -161,6 +222,9 @@ src/main/resources/
   application.properties
   db/migration/V1__create_timestamps.sql
   db/migration/V2__create_app_users.sql
+src/main/docker/
+  Dockerfile.native               # native runtime image (deploy pulls this)
+  Dockerfile.jvm                  # JVM fallback image (GraalVM-free smoke builds)
 src/test/java/net/hashbin/
   HealthResourceTest.java
   StampResourceTest.java

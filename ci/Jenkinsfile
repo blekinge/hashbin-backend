@@ -1,0 +1,42 @@
+// Jenkins pipeline for the hashbin-quarkus backend.
+//
+// Uses the org's shared `DinDBuild` library, in the same "Jenkins + Platform shared-lib + ./mvnw"
+// shape as the other Quarkus services (cf. DIGITV/xipax's ci/Jenkinsfile), but the Docker-in-Docker
+// variant rather than DockerfileBuild.
+//
+// Why DinDBuild and not DockerfileBuild (which xipax uses):
+//   This project's test suite is `@QuarkusTest` with no JDBC URL, so it runs on Quarkus **Dev
+//   Services** — Testcontainers pulls up an ephemeral `postgres:16-alpine` container per run (see
+//   docs/HANDOFF.md). That needs a real container engine. `DockerfileBuild` drives the build inside a
+//   single BuildKit image build whose `test` stage is `./mvnw verify`; inside that build there is no
+//   Docker daemon for Testcontainers to talk to, so the suite cannot start its database and the test
+//   stage fails. `DinDBuild` runs on a Kubernetes pod with a privileged `docker:dind-rootless`
+//   sidecar and points the JDK container at it (`DOCKER_HOST=tcp://localhost:2376`, Ryuk disabled),
+//   so the suite runs unchanged. It also builds with the JDK 21 image this project requires.
+//
+// Why this file is at `ci/Jenkinsfile` and not the repository root: the org runs two Jenkins
+// controllers that each find pipelines by *path* — the legacy one reads `Jenkinsfile` in the root,
+// the current one `ci/Jenkinsfile`. Living under `ci/` means only the current controller builds this
+// repo and posts the PR commit status; a root file would make both controllers build every branch.
+//
+// What this pipeline does per run:
+//   * `./mvnw -PallTests clean install` — compile + the full 50-test suite against a Dev Services DB.
+//   * recordIssues — compile/javadoc/warnings aggregation.
+//   * on `master`: `clean deploy` of the jar to the org Nexus (via the Jenkins Maven settings).
+//
+// Note on the image the k8s deploy wants: DinDBuild publishes the **jar to Nexus**, not a container
+// image to Harbor. The api image (`ghcr.io/blekinge/hashbin-quarkus`, the native build) is produced
+// by the Quarkus Maven build and pushed by hand — see README "Container image". Automating that push
+// in Jenkins is a separate follow-up (DockerfileBuild can't host it — see the engine note above).
+//
+// Requires the Maven wrapper (`./mvnw`, `.mvn/wrapper/`) and the `allTests` Maven profile, both in
+// this repo; `DinDBuild` invokes `./mvnw`, so it is not optional here.
+
+library identifier: 'DinDBuild@master', retriever: modernSCM(scm: [$class: 'GitSCMSource', remote: 'https://sbprojects.statsbiblioteket.dk/stash/scm/ist/jenkins-shared.git', credentialsId: 'sbprojects-stash'],libraryPath: "Platform") _
+
+DinDBuild {
+    // JDK 21 is mandatory: Quarkus 3.20's Hibernate build rejects Java 25 class files. DinDBuild
+    // defaults to this exact image, but pin it so the constraint is explicit and a library default
+    // change cannot silently break the build.
+    jdkImage = "eclipse-temurin:21-jdk-ubi9-minimal"
+}
