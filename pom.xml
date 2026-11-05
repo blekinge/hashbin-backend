@@ -5,10 +5,10 @@
   <modelVersion>4.0.0</modelVersion>
 
   <groupId>net.hashbin</groupId>
-  <artifactId>hashbin-parent</artifactId>
+  <artifactId>hashbin-backend</artifactId>
   <version>1.0.0-SNAPSHOT</version>
   <packaging>pom</packaging>
-  <name>Hashbin Parent</name>
+  <name>Hashbin Backend</name>
   <description>
     Aggregator for the hashbin.net timestamping backend: the Quarkus service (hashbin-quarkus)
     and a plain-Java client library (hashbin-api). This parent holds only build configuration that
