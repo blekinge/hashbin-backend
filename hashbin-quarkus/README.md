@@ -122,10 +122,11 @@ hashbin-quarkus-<version>-openapi.jar     # contains openapi.yaml + openapi.json
 
 It is attached to the build and **consumed in-reactor by the sibling
 [`hashbin-api`](../hashbin-api/README.md) module**, which unpacks it and generates its
-client models from it (so the client can never drift from the service). Because its
-only consumer is that module in this same reactor, the artifact is **not published to
-any Maven registry** — it is internal build plumbing. The `hashbin-api` jar (and the
-service image) are what get published for external use.
+client models **and MicroProfile REST Client interfaces** from it (so the client can
+never drift from the service). Because its only consumer is that module in this same
+reactor, the artifact is **not published to any Maven registry** — it is internal build
+plumbing (the generated client also bundles the yaml/json at `META-INF/openapi/`). The
+`hashbin-api` jar (and the service image) are what get published for external use.
 
 ```
 net.hashbin:hashbin-quarkus:jar:openapi   # unpacked by hashbin-api's maven-dependency-plugin
@@ -375,16 +376,16 @@ hashbin-quarkus/                      # -- the service module (all Quarkus lives
     Dockerfile.jvm / Dockerfile.native # hand-built (mvn -Dquarkus.container-image.build), module-dir context
   src/test/java/net/hashbin/          # @QuarkusTest suite (Dev Services Postgres)
 
-hashbin-api/                          # -- the client module (models GENERATED from the spec) --
-  pom.xml                             # openapi-generator (java/microprofile, models only) + Jackson
+hashbin-api/                          # -- the client module (models + client GENERATED from the spec) --
+  pom.xml                             # openapi-generator (java/microprofile) + Jackson; bundles META-INF/openapi
   src/main/java/net/hashbin/api/
-    HashbinClient.java                # hand-written JDK HttpClient wrapper for the /api routes
+    HashbinClient.java                # hand-written JDK HttpClient wrapper (dependency-free alternative)
     ApiException.java                 # hand-written: status + {"error": ...} message
     security/Signature.java           # hand-written: HMAC sign/verify (the part OpenAPI can't express)
-    # model/* and net.hashbin.api.model are GENERATED at build time into
-    # target/generated-sources/openapi (not committed): StampRequest, TimestampView,
-    # TimestampPublicView, AuthRequest, AuthResponse, MeView.
-  src/test/java/net/hashbin/api/      # plain-JUnit: stub-server client test + HMAC vectors
+    auth/BearerClientHeadersFactory.java  # hand-written: adds Authorization: Bearer for the generated client
+    # model/* AND net.hashbin.api.{Timestamps,Auth,Health,Docs}Api are GENERATED at build time into
+    # target/generated-sources/openapi (not committed): Jackson POJOs + @RegisterRestClient interfaces.
+  src/test/java/net/hashbin/api/      # plain-JUnit: stub-server + generated-API/spec reflection tests
 ```
 
 ## License

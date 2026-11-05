@@ -7,19 +7,19 @@ independent build units:
 | Module | What it is | Build |
 |---|---|---|
 | **`hashbin-quarkus`** | The service / Docker image. **All Quarkus lives here.** | Quarkus 3.40.1 / JDK 21 |
-| **`hashbin-api`** | A Java client whose **models are generated from the service's OpenAPI**; hand-written `HashbinClient` + HMAC on top. | JDK 21, openapi-generator + Jackson |
+| **`hashbin-api`** | Java client: **models + a MicroProfile REST Client generated from the service's OpenAPI**; hand-written HMAC + a dependency-free `HashbinClient`. | JDK 21, openapi-generator + Jackson |
 
 A parent POM (`hashbin-parent`, `packaging=pom`) aggregates the two and holds only
 shared, Quarkus-free build config.
 
 ## Why split into these two modules
 
-`hashbin-api`'s request/response **models are regenerated on every build from the
+`hashbin-api`'s models and client interfaces are **regenerated on every build from the
 OpenAPI document the `hashbin-quarkus` module emits** (in-reactor — the spec artifact
-never leaves the repo). So the client can never drift from the service: a response-shape
-change becomes a compile error downstream automatically. The `hashbin-api` **jar** is
-then published so external JVM clients (e.g. the separate `hashbin-cli` repo) can depend
-on it as a versioned Maven artifact:
+never leaves the repo). So the client can never drift from the service: a contract change
+becomes a compile error downstream automatically. The `hashbin-api` **jar** is then
+published so external JVM clients (e.g. the separate `hashbin-cli` repo) can depend on it
+as a versioned Maven artifact:
 
 ```xml
 <dependency>
@@ -43,10 +43,10 @@ boolean authentic = Signature.verify(System.getenv("HASHBIN_HMAC_SECRET"), ts);
 List<TimestampPublicView> history = client.verify(sha256, "auto");
 ```
 
-The generated models carry the wire contract (routes are in the spec; snake_case JSON);
-the HTTP client and the **HMAC verification** are hand-written — the signature scheme is
-the one part of the contract an OpenAPI document cannot express. See
-[`hashbin-api`](hashbin-api/README.md).
+Quarkus consumers can instead use the **generated** MicroProfile REST Client
+(`@Inject @RestClient TimestampsApi`, with `BearerClientHeadersFactory` for the token).
+The **HMAC verification** stays hand-written — the signature scheme is the one part of the
+contract an OpenAPI document cannot express. See [`hashbin-api`](hashbin-api/README.md).
 
 ## Build
 

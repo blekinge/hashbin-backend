@@ -27,13 +27,17 @@
     <openapi.gen.dir>${project.build.directory}/generated-sources/openapi</openapi.gen.dir>
     <hashbin.api.package>net.hashbin.api</hashbin.api.package>
     <jackson.version>2.18.2</jackson.version>
+    <!-- Jakarta / MicroProfile API versions the generated interfaces compile against
+         (align with Quarkus 3.x; the consuming app supplies the runtime impl). -->
+    <jakarta.ws.rs.version>3.1.0</jakarta.ws.rs.version>
+    <microprofile.rest.client.version>4.0</microprofile.rest.client.version>
   </properties>
 
   <dependencies>
     <!--
       Build-order + spec carrier: depending on the service's generated OpenAPI artifact makes Maven
       build hashbin-quarkus first (it runs the quarkus build goal that writes the spec + -openapi.jar)
-      and hands the artifact to maven-dependency-plugin to unpack. Provided + content-less (yaml
+      and hands the artifact to maven-dependency-plugin to unpack. Provided + content-less (yaml/json
       only) => nothing on this library's runtime classpath and never published. Stays in-reactor.
     -->
     <dependency>
@@ -45,7 +49,22 @@
       <scope>provided</scope>
     </dependency>
 
-    <!-- Jackson: the generated models' serialization annotations + the hand-written client. -->
+    <!-- Provided API jars the generated MicroProfile REST Client interfaces compile against.
+         Quarkus (hashbin-cli) supplies the runtime impl via quarkus-rest-client-jackson. -->
+    <dependency>
+      <groupId>jakarta.ws.rs</groupId>
+      <artifactId>jakarta.ws.rs-api</artifactId>
+      <version>${jakarta.ws.rs.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.eclipse.microprofile.rest.client</groupId>
+      <artifactId>microprofile-rest-client-api</artifactId>
+      <version>${microprofile.rest.client.version}</version>
+      <scope>provided</scope>
+    </dependency>
+
+    <!-- Jackson: the generated models' serialization annotations + the hand-written helpers. -->
     <dependency>
       <groupId>com.fasterxml.jackson.core</groupId>
       <artifactId>jackson-databind</artifactId>
@@ -90,11 +109,41 @@
                   <classifier>openapi</classifier>
                   <type>jar</type>
                   <outputDirectory>${openapi.spec.dir}</outputDirectory>
-                  <includes>openapi.yaml</includes>
+                  <includes>openapi.yaml,openapi.json</includes>
                 </artifactItem>
               </artifactItems>
               <overWriteReleases>true</overWriteReleases>
               <overWriteSnapshots>true</overWriteSnapshots>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!-- 1b) Bundle the OpenAPI documents into this jar under META-INF/openapi, so consumers
+                of hashbin-api also get the exact spec the client was generated from (nice-to-have:
+                codegen, docs, self-inspection). Runs after unpack, before jar packaging. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-resources-plugin</artifactId>
+        <version>3.3.1</version>
+        <executions>
+          <execution>
+            <id>bundle-openapi</id>
+            <phase>process-resources</phase>
+            <goals>
+              <goal>copy-resources</goal>
+            </goals>
+            <configuration>
+              <outputDirectory>${project.build.outputDirectory}/META-INF/openapi</outputDirectory>
+              <resources>
+                <resource>
+                  <directory>${openapi.spec.dir}</directory>
+                  <includes>
+                    <include>openapi.yaml</include>
+                    <include>openapi.json</include>
+                  </includes>
+                </resource>
+              </resources>
             </configuration>
           </execution>
         </executions>
@@ -120,8 +169,9 @@
               <addCompileSourceRoot>true</addCompileSourceRoot>
               <verbose>false</verbose>
 
-              <!-- Models only: the HTTP client + HMAC verify stay hand-written in this module. -->
-              <generateApis>false</generateApis>
+              <!-- Generate the MicroProfile REST Client interfaces + the Jackson models.
+                   The HTTP client + HMAC verify still stay hand-written. -->
+              <generateApis>true</generateApis>
               <generateApiTests>false</generateApiTests>
               <generateApiDocumentation>false</generateApiDocumentation>
               <generateModels>true</generateModels>

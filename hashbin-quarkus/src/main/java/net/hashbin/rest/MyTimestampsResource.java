@@ -28,11 +28,17 @@ import net.hashbin.service.AuthService;
 /**
  * GET /api/my-timestamps — list the authenticated user's own timestamps (full
  * projection, newest first). Requires a valid bearer token.
+ *
+ * <p>Auth is modelled as a bearer security scheme (not a header parameter): SmallRye
+ * hard-filters {@code Authorization} header parameters out of the spec
+ * (ACCEPT/AUTHORIZATION/CONTENT-TYPE are ignored regardless of annotations), so a
+ * generated MicroProfile client supplies the token via a {@code ClientHeadersFactory}
+ * registered at build time rather than as a method argument.
  */
 @Path("/my-timestamps")
 @Tag(name = "Timestamps")
 @SecurityScheme(securitySchemeName = "bearerAuth", type = SecuritySchemeType.HTTP,
-        scheme = "bearer", bearerFormat = "JWT", description = "Supabase JWT access token")
+        scheme = "bearer", bearerFormat = "JWT", description = "hashbin JWT access token")
 public class MyTimestampsResource {
 
     @Inject
