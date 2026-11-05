@@ -11,8 +11,8 @@
 //
 // Pod layout (three containers) and why:
 //   * Stage 1 (tests) deliberately does NOT go through Testcontainers. The suite uses Quarkus Dev
-//     Services (no JDBC URL => Testcontainers starts Postgres in a container), but docker-java in
-//     Testcontainers 1.20.6 negotiates Docker API v1.32, which modern daemons reject ("minimum
+//     Services (no JDBC URL => Testcontainers starts Postgres in a container), but legacy
+//     docker-java/Testcontainers clients negotiate Docker API v1.32, which modern daemons reject ("minimum
 //     supported API version is 1.40") and DOCKER_API_VERSION is ignored by that client (see
 //     README "Decisions & gotchas" — it is why local dev uses Podman). So the pod runs a plain
 //     `postgres` sidecar and the build points its datasource at it, bypassing Dev Services entirely.
@@ -57,7 +57,7 @@ pipeline {
                     tty: true
                     env:
                     # Test against the `postgres` sidecar instead of Dev Services/Testcontainers (see
-                    # header: docker-java 1.20.6's API version is rejected by modern daemons). A set
+                    # header: legacy docker-java's API version is rejected by modern daemons). A set
                     # JDBC URL disables Dev Services for the datasource; Flyway migrates it at start.
                     - name: QUARKUS_DATASOURCE_JDBC_URL
                       value: jdbc:postgresql://localhost:5432/hashbin

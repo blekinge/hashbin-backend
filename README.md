@@ -28,7 +28,7 @@ pages: same routes (`/api/stamp`, `/api/verify`, `/api/my-timestamps`,
 
 This backend lives alongside two sibling repos (separate repos, not a monorepo):
 
-- **hashbin-quarkus** *(this repo)* — the backend (Quarkus 3.20.1 / JDK 21). Dev/test
+- **hashbin-quarkus** *(this repo)* — the backend (Quarkus 3.40.1 / JDK 21). Dev/test
   DB via Quarkus Dev Services (throwaway Postgres through Testcontainers). A
   file-activated `web` Maven profile serves `../hashbin-web/dist` same-origin. The
   native container-image build is wired (Docker extension + Mandrel container build).
@@ -160,7 +160,8 @@ Two stages:
 sibling `xipax` uses) runs the suite *inside* a BuildKit image build, where there is no Docker
 daemon for Testcontainers, so this project's DB-backed tests can't run; `DinDBuild` runs the tests
 with a DinD sidecar but only publishes the **jar to Nexus**, not a container image — and a modern
-`docker:dind-rootless` daemon rejects Testcontainers 1.20.6's API v1.32, so it can't run *this*
+`docker:dind-rootless` daemon rejects the older API v1.32 that Testcontainers' docker-java
+negotiates, so it can't run *this*
 suite's Dev Services tests either. Neither alone does both jobs, so the pipeline here avoids
 Testcontainers for tests and does **test + image push in one run**. It reuses the same agent model
 as `DinDBuild` and the same Harbor naming + `jenkins-harbor` credential as `DockerfileBuild`.
@@ -231,8 +232,7 @@ lives in `../hashbin-deploy`.)
   URL**, so Dev Services starts a throwaway `postgres:16-alpine` (image pinned via
   `quarkus.datasource.devservices.image-name`) through Testcontainers.
   - *Why Podman is sometimes needed:* some Docker Engine releases reject the older Docker API
-    version (v1.32) that docker-java in Testcontainers 1.20.6 (bundled with Quarkus 3.20.1)
-    negotiates — modern daemons want ≥ 1.40 and `DOCKER_API_VERSION` is ignored by that client.
+    version (v1.32) that legacy docker-java/Testcontainers clients negotiate — modern daemons want ≥ 1.40 and `DOCKER_API_VERSION` is ignored by that client.
     Podman's Docker-compat API accepts it; a Quarkus/Testcontainers upgrade also fixes it on
     Docker. Podman setup (socket + `DOCKER_HOST` + `TESTCONTAINERS_RYUK_DISABLED=true`, and
     making sure `postgres:16-alpine` is in Podman's image store) is in [Requirements](#requirements).
