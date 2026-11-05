@@ -115,11 +115,13 @@ pipeline {
             steps {
                 container('docker') {
                     script {
-                        // Image coordinates derived from the Bitbucket-for-Jenkins env vars, exactly
-                        // as DockerfileBuild does: harbor.tools.nyx.kb.dk/<project-key>/<repo>.
+                        // Harbor image path: harbor.tools.nyx.kb.dk/blekinge/<repo>.
+                        // The library segment is the org account 'blekinge' (the Bitbucket-for-
+                        // Jenkins env vars are null on this GitHub job, so don't depend on them).
                         def harborName = 'harbor.tools.nyx.kb.dk'
-                        def harborLibrary = "${env.BITBUCKET_PROJECT_KEY}".toLowerCase()
-                        def projectName = "${env.BITBUCKET_REPOSITORY}"
+                        def harborLibrary = 'blekinge'
+                        // Repo name: Bitbucket var, else GitHub's REPO, else this repo's literal.
+                        def projectName = env.BITBUCKET_REPOSITORY ?: env.REPO ?: 'hashbin-quarkus'
 
                         def validBranchTag = (env.BRANCH_NAME ?: 'dev')
                             .replace('/', '-').replace('+', '-').replace('_', '-')
