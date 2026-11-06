@@ -56,53 +56,23 @@ pipeline {
                     command: [cat]
                     tty: true
                     env:
-                    # Test against the `postgres` sidecar instead of Dev Services/Testcontainers (see
-                    # header: legacy docker-java's API version is rejected by modern daemons). A set
-                    # JDBC URL disables Dev Services for the datasource; Flyway migrates it at start.
-                    - name: QUARKUS_DATASOURCE_JDBC_URL
-                      value: jdbc:postgresql://localhost:5432/hashbin
-                    - name: QUARKUS_DATASOURCE_USERNAME
-                      value: hashbin
-                    - name: QUARKUS_DATASOURCE_PASSWORD
-                      value: hashbin
-                    - name: QUARKUS_DATASOURCE_DEVSERVICES_ENABLED
-                      value: "false"
+                    - name: DOCKER_HOST
+                      value: tcp://localhost:2376
+                    - name: DOCKER_CERT_PATH
+                      value: /docker-certs
+                    - name: DOCKER_TLS_VERIFY
+                      value: "1"
+                    - name: TESTCONTAINERS_RYUK_DISABLED
+                      value: "true"
+                    volumeMounts:
+                      - mountPath: /docker-certs
+                        name: docker-certs
+                        subPath: client
+                        readOnly: true
                     resources:
                       requests: { memory: "1Gi" }
                       limits:   { memory: "4Gi" }
-                    volumeMounts:
-                    - name: pgdata
-                      mountPath: /var/lib/postgresql/data
-                  # postgres: the throwaway database the tests run against.
-                  - name: postgres
-                    image: docker.io/library/postgres:16-alpine
-                    env:
-                    - name: POSTGRES_USER
-                      value: hashbin
-                    - name: POSTGRES_PASSWORD
-                      value: hashbin
-                    - name: POSTGRES_DB
-                      value: hashbin
-                    - name: PGDATA
-                      value: /var/lib/postgresql/data/pgdata
-                    # Gate pod readiness on the DB accepting connections, so the test build never
-                    # races Postgres startup.
-                    readinessProbe:
-                      exec:
-                        command: ["pg_isready", "-U", "hashbin", "-d", "hashbin"]
-                      initialDelaySeconds: 3
-                      periodSeconds: 3
-                      timeoutSeconds: 3
-                      failureThreshold: 40
-                    resources:
-                      requests: { memory: "256Mi" }
-                      limits:   { memory: "1Gi" }
-                    volumeMounts:
-                    - name: pgdata
-                      mountPath: /var/lib/postgresql/data
-                  # docker: the daemon that builds + pushes the native image (stage 2 only). Rootless
-                  # dind is privileged-capable; the CLI here uses its own local unix socket (no
-                  # DOCKER_HOST override => no HTTP-to-TLS mismatch).
+                  # docker: the daemon that builds + pushes the native image (stage 2 only).
                   - name: docker
                     image: docker:dind-rootless
                     tty: true
@@ -111,9 +81,15 @@ pipeline {
                     resources:
                       requests: { memory: "4Gi" }
                       limits:   { memory: "8Gi" }
+                    env:
+                    - name: DOCKER_TLS_CERTDIR
+                      value: /docker-certs
+                    volumeMounts:
+                      - mountPath: "/docker-certs"
+                        name: "docker-certs"
                   volumes:
-                  - name: pgdata
-                    emptyDir: {}
+                    - name: docker-certs
+                      emptyDir: {}
                 """
             retries 2
         }
@@ -264,7 +240,7 @@ pipeline {
                           --tag "$IMAGE_TAG" \
                           ${LATEST_TAG:+--tag $LATEST_TAG} \
                           --file "$BUILD_DOCKERFILE" \
-                          --secret id=settings.xml,src=$MVN_SETTINGS
+                          --secret id=settings.xml,src=$MVN_SETTINGS \
                           .
                         '''
                     }
