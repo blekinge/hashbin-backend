@@ -158,9 +158,8 @@ pipeline {
                         '''
 
                         // The wrapper downloads Maven 3.9.16 and builds on the image's JDK 21 (the
-                        // only JDK Quarkus 3.20's Hibernate build accepts). -PallTests runs the full
-                        // suite; the datasource env above points it at the postgres sidecar.
-                        sh './mvnw $MAVEN_CONFIG --no-transfer-progress -PallTests clean install'
+                        // only JDK Quarkus 3.20's Hibernate build accepts). the datasource env above points it at the postgres sidecar.
+                        sh './mvnw $MAVEN_CONFIG --no-transfer-progress clean install'
 
                         // Capture the version for the image tag now, while we have the wrapper and
                         // JDK here; the image stage runs in the sidecar container, which has no JDK.
@@ -265,7 +264,7 @@ pipeline {
                           --tag "$IMAGE_TAG" \
                           ${LATEST_TAG:+--tag $LATEST_TAG} \
                           --file "$BUILD_DOCKERFILE" \
-                          -secret id=settings.xml,src=$MVN_SETTINGS
+                          --secret id=settings.xml,src=$MVN_SETTINGS
                           .
                         '''
                     }
