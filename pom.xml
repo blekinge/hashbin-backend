@@ -83,5 +83,30 @@
     <profile>
       <id>allTests</id>
     </profile>
+
+    <!-- Where `deploy` publishes: SBForge's public Nexus (hashbin is a public project, so it
+         releases on sbforge.org rather than the internal sbprojects instance). Declared once on the
+         parent; the child modules inherit <distributionManagement>, so `./mvnw deploy -pl
+         .,hashbin-api -Psbforge-nexus` publishes this pom + the generated client jar that
+         hashbin-cli compiles against (see ci/Jenkinsfile's 'Publish API artifact' stage). URLs only:
+         credentials come from the Maven settings' <server id="sbforge-nexus">. Copied from the
+         <distributionManagement> of org.sbforge:sbforge-parent; profile-scoped (rather than inherited
+         from it) so plain builds and other CI are unaffected and nothing deploys unless the profile
+         is named. -->
+    <profile>
+      <id>sbforge-nexus</id>
+      <distributionManagement>
+        <repository>
+          <id>sbforge-nexus</id>
+          <name>SBForge Nexus Repo manager</name>
+          <url>https://sbforge.org/nexus/content/repositories/releases</url>
+        </repository>
+        <snapshotRepository>
+          <id>sbforge-nexus</id>
+          <name>SBForge Nexus Repo manager</name>
+          <url>https://sbforge.org/nexus/content/repositories/snapshots/</url>
+        </snapshotRepository>
+      </distributionManagement>
+    </profile>
   </profiles>
 </project>

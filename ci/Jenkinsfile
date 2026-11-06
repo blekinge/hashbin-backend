@@ -179,6 +179,39 @@ pipeline {
             }
         }
 
+        stage('Publish API artifact') {
+            steps {
+                container('jdk') {
+                    withMaven() {
+                        script {
+                            // Only main/master publishes: every merge would otherwise push the same
+                            // 1.0.0-SNAPSHOT from feature branches too, and the last writer wins —
+                            // consumers (hashbin-cli's CI compile) must see exactly what is on main.
+                            // Branch detection mirrors the image stage below (env.GIT_BRANCH fallback
+                            // for jobs that are not multibranch).
+                            def branch = (env.BRANCH_NAME
+                                ?: (env.GIT_BRANCH ?: '').replaceAll(/^(refs\/heads\/|origin\/)/, '')
+                                ?: 'dev').toLowerCase()
+                            if (branch in ['main', 'master']) {
+                                // Deploy the parent pom + hashbin-api only. The parent must go too:
+                                // hashbin-api's pom references it, and consumers could not resolve the
+                                // api without it. hashbin-quarkus is deliberately NOT in this reactor
+                                // (a service is distributed as a container image, not a Maven artifact;
+                                // its -openapi.jar dependency resolves from stage 1's `install`, same
+                                // container and local repo). Server credentials for
+                                // <server id="sbforge-nexus"> come from the settings.xml withMaven()
+                                // provides — SBForge's public Nexus, where hashbin-cli's CI then
+                                // resolves this artifact from (see hashbin-cli/pom.xml <repositories>).
+                                sh './mvnw --batch-mode --no-transfer-progress --errors deploy -pl .,hashbin-api -Psbforge-nexus -DskipTests'
+                            } else {
+                                echo "Branch '${branch}' is not main/master; skipping hashbin-api Nexus deploy."
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         stage('Build and push image') {
             steps {
                 container('docker') {

@@ -74,6 +74,10 @@ to the org Harbor (`ghcr.io/blekinge/hashbin-backend` for manual builds). Those
 recipes scope the Maven build to the service module (`-pl hashbin-quarkus -am`) and
 read artifacts from `hashbin-quarkus/target/...`. See the service README.
 
+On `main`/`master`, the same pipeline also deploys `hashbin-api` (plus this parent pom,
+which its pom references) to SBForge's public Nexus under `net.hashbin:hashbin-api` — that is how
+sibling projects like hashbin-cli resolve it without a local checkout of this repo.
+
 ## Ecosystem
 
 - **hashbin-quarkus** *(this repo, `hashbin-quarkus` module)* — the backend.
