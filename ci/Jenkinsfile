@@ -160,7 +160,7 @@ pipeline {
                         // The wrapper downloads Maven 3.9.16 and builds on the image's JDK 21 (the
                         // only JDK Quarkus 3.20's Hibernate build accepts). -PallTests runs the full
                         // suite; the datasource env above points it at the postgres sidecar.
-                        sh './mvnw --batch-mode --no-transfer-progress -PallTests clean install'
+                        sh './mvnw $MAVEN_CONFIG --no-transfer-progress -PallTests clean install'
 
                         // Capture the version for the image tag now, while we have the wrapper and
                         // JDK here; the image stage runs in the sidecar container, which has no JDK.
@@ -168,7 +168,7 @@ pipeline {
                         // steps{} block — a raw `def` there is a compilation error, not a step.
                         script {
                             def version = sh(returnStdout: true, script: '''
-                                ./mvnw --batch-mode --quiet --define forceStdout \
+                                ./mvnw $MAVEN_CONFIG --quiet --define forceStdout \
                                   --define expression=project.version help:evaluate
                             ''').trim()
                             env.PROJECT_VERSION = version
@@ -202,7 +202,7 @@ pipeline {
                                 // <server id="sbforge-nexus"> come from the settings.xml withMaven()
                                 // provides — SBForge's public Nexus, where hashbin-cli's CI then
                                 // resolves this artifact from (see hashbin-cli/pom.xml <repositories>).
-                                sh './mvnw --batch-mode --errors --activate-profiles sbforge-nexus --define sbforge-nexus deploy --projects .,hashbin-api --define skipTests'
+                                sh './mvnw $MAVEN_CONFIG --errors --activate-profiles sbforge-nexus --define sbforge-nexus deploy --projects .,hashbin-api --define skipTests'
                             } else {
                                 echo "Branch '${branch}' is not main/master; skipping hashbin-api Nexus deploy."
                             }
@@ -252,20 +252,23 @@ pipeline {
                         echo "Building and pushing ${env.IMAGE_TAG} (${env.BUILD_NATIVE == 'true' ? 'native' : 'JVM'} image from ${env.BUILD_DOCKERFILE})"
                         if (isMain) echo "Main branch '${branch}': also tagging and pushing ${env.LATEST_TAG}"
                     }
-
-                    // Build from source so the pushed image never depends on a locally built
-                    // artifact. DOCKER_BUILDKIT=1 (set by the prelude) honours
-                    // `# syntax=docker/dockerfile:1`. For the JVM image, Maven packages the fast-jar
-                    // in the build stage; for the native image, the binary compiles inside the
-                    // Mandrel builder stage — neither needs a JDK or nested container in this step.
-                    sh dockerClientEnv() + '''
-                        docker build \
+                    
+                    withMaven() {
+                        
+                        // Build from source so the pushed image never depends on a locally built
+                        // artifact. DOCKER_BUILDKIT=1 (set by the prelude) honours
+                        // `# syntax=docker/dockerfile:1`. For the JVM image, Maven packages the fast-jar
+                        // in the build stage; for the native image, the binary compiles inside the
+                        // Mandrel builder stage — neither needs a JDK or nested container in this step.
+                        sh dockerClientEnv() + '''docker build \
                           --target final \
                           --tag "$IMAGE_TAG" \
                           ${LATEST_TAG:+--tag $LATEST_TAG} \
                           --file "$BUILD_DOCKERFILE" \
+                          -secret id=settings.xml,src=$MVN_SETTINGS
                           .
-                    '''
+                        '''
+                    }
 
                     withCredentials([usernamePassword(credentialsId: 'jenkins-harbor',
                                                       usernameVariable: 'USERNAME',
