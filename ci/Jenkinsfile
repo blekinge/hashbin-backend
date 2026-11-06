@@ -125,9 +125,7 @@ pipeline {
                         sh './mvnw $MAVEN_CONFIG --no-transfer-progress clean install'
 
                         // Capture the version for the image tag now, while we have the wrapper and
-                        // JDK here; the image stage runs in the sidecar container, which has no JDK.
-                        // Bare Groovy (def / assignment) must be inside script{} in a Declarative
-                        // steps{} block — a raw `def` there is a compilation error, not a step.
+                        // JDK here; the "image build" stage runs in the "docker" container, which has no JDK.
                         script {
                             def version = sh(returnStdout: true, script: '''
                                 ./mvnw $MAVEN_CONFIG --quiet --define forceStdout \
