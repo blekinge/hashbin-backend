@@ -21,6 +21,12 @@
   </description>
 
   <properties>
+    <!-- Bytecode target for this published client library. The whole reactor builds on the
+         JDK 25 toolchain (parent's maven.compiler.release=25), but this artifact is consumed by
+         external JVM clients, so ship Java 21 bytecode: javac 25 compiles with release 21,
+         linking against Java 21's API signatures (so no newer-than-21 API slips in). -->
+    <maven.compiler.release>21</maven.compiler.release>
+
     <!-- OpenAPI generator wiring. -->
     <openapi-generator.version>7.24.0</openapi-generator.version>
     <openapi.spec.dir>${project.build.directory}/openapi</openapi.spec.dir>

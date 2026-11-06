@@ -4,13 +4,12 @@
 # self-contained `ci/Jenkinsfile` (no shared-library contract, so — unlike the sibling
 # Dockerfile.ci recipes — it does not need the five initial/setup/compile/test/final stages).
 #
-#   build stage : compile the native executable inside the Mandrel (JDK 21) builder image.
+#   build stage : compile the native executable inside the Mandrel (JDK 25) builder image.
 #                 `native-image` runs *inside* this stage, so we pass
 #                 `-Dquarkus.native.container-build=false` (no nested container build).
 #   final stage : copy that one binary onto a minimal base; this is what gets tagged/pushed.
 #
-# JDK 21 is mandatory (Quarkus 3.20 Hibernate rejects Java 25 class files); the Mandrel
-# `jdk-21` tag provides it, so no version comes from the host.
+# The `jdk-25` Mandrel tag provides the JDK, so no version comes from the host.
 #
 # Maven deps resolve from Maven Central (every dependency of this project is public). If an
 # internal Nexus dependency is ever added, pass the org settings as a BuildKit secret and it
@@ -21,8 +20,8 @@
 # Runs as non-root UID 185 on :8080, matching the Deployment's securityContext / containerPort.
 ####
 
-# ---- build: native executable, compiled in the Mandrel/JDK-21 image -----------------
-FROM quay.io/quarkus/ubi9-quarkus-mandrel-builder-image:jdk-21 AS build
+# ---- build: native executable, compiled in the Mandrel/JDK-25 image -----------------
+FROM quay.io/quarkus/ubi9-quarkus-mandrel-builder-image:jdk-25 AS build
 USER root
 WORKDIR /build
 # Cache the Maven local repository across builds. The mount is the `repository` subdir

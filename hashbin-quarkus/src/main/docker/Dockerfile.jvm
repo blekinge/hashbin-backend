@@ -9,7 +9,7 @@
 #
 # Runs as the non-root UID 185 and listens on 8080.
 ####
-FROM registry.access.redhat.com/ubi9/openjdk-21:1.21
+FROM registry.access.redhat.com/ubi9/openjdk-25:1.24
 
 ENV LANGUAGE='en_US:en'
 

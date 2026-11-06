@@ -1,14 +1,14 @@
 # syntax=docker/dockerfile:1
 ####
 # CI build recipe for the hashbin-quarkus **JVM** image: compiles the Quarkus app with Maven
-# (NO native-image) in a JDK-21 + Maven stage, then runs it on a minimal JRE. This is the fast CI
+# (NO native-image) in a JDK-25 + Maven stage, then runs it on a minimal JRE. This is the fast CI
 # default while the native build is off — set BUILD_NATIVE='true' in ci/Jenkinsfile to build
 # Dockerfile.native-multi-stage instead. Mirrors hashbin-web's Dockerfile.ci (build from source,
 # so the pushed image never depends on a locally built artifact).
 #
 # Runs non-root (UID 185) on :8080 to match the Deployment's securityContext/containerPort.
 ####
-FROM docker.io/library/maven:3.9-eclipse-temurin-21 AS build
+FROM docker.io/library/maven:3.9-eclipse-temurin-25 AS build
 WORKDIR /build
 # Optional org-Nexus settings secret (skipped when not supplied; all deps are public).
 RUN mkdir -p "$HOME/.m2" && ln -sf /run/secrets/settings.xml "$HOME/.m2/settings.xml"
@@ -23,7 +23,7 @@ RUN --mount=type=secret,id=settings.xml \
       package
 
 # ---- final: minimal JRE running the Quarkus fast-jar (target/quarkus-app) --------------
-FROM docker.io/eclipse-temurin:21-jre-ubi9-minimal AS final
+FROM docker.io/eclipse-temurin:25-jre-ubi10-minimal AS final
 WORKDIR /app
 # Four layers so library layers are reused when only app code changes.
 COPY --from=build /build/hashbin-quarkus/target/quarkus-app/lib/     /app/lib/

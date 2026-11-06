@@ -39,7 +39,7 @@ Java client whose models are generated from this service's OpenAPI document (so 
 cannot drift). The repo itself lives alongside two further sibling repos (separate
 repos, not a monorepo):
 
-- **hashbin-quarkus** *(this module)* — the backend (Quarkus 3.40.1 / JDK 21). Dev/test
+- **hashbin-quarkus** *(this module)* — the backend (Quarkus 3.40.1 / JDK 25). Dev/test
   DB via Quarkus Dev Services (throwaway Postgres through Testcontainers). A
   file-activated `web` Maven profile serves `../../hashbin-web/dist` same-origin. The
   native container-image build is wired (Docker extension + Mandrel container build).
@@ -55,7 +55,8 @@ The original `hashbin-time-vault` repo is **untouched** — a design/copy refere
 
 ## Requirements
 
-- **Java 21** — required; Quarkus 3.20's bundled Byte Buddy rejects Java 25 class files.
+- **Java 25** — the build and runtime target (Quarkus 3.40 supports it; the build pins
+  `maven.compiler.release` to 25).
 - **Maven** 3.9+
 - **A container engine** (Docker, or rootless **Podman**) reachable by Testcontainers — Dev
   Services starts the PostgreSQL it needs on demand. With Docker working out of the box,
@@ -69,7 +70,7 @@ The original `hashbin-time-vault` repo is **untouched** — a design/copy refere
 Dev Services starts a throwaway PostgreSQL on demand, so there is no manual database step.
 
 ```bash
-export JAVA_HOME=<a JDK 21>     # JDK 21 required
+export JAVA_HOME=<a JDK 25>     # JDK 25 required
 mvn quarkus:dev
 ```
 
@@ -172,7 +173,7 @@ non-root UID 185 on port 8080, matching the Deployment's `securityContext`/`cont
 CI is a **self-contained pipeline** at [`ci/Jenkinsfile`](ci/Jenkinsfile) — no shared-library
 calls. It runs in a Kubernetes pod with **three** containers:
 
-- **`jdk`** (`eclipse-temurin:21-jdk-ubi9-minimal`) — builds and tests via `./mvnw`.
+- **`jdk`** (`eclipse-temurin:25-jdk-ubi10-minimal`) — builds and tests via `./mvnw`.
 - **`postgres`** (`postgres:16-alpine`) — the throwaway test DB, gated by a `pg_isready`
   readiness probe so the build never races startup.
 - **`docker`** (`docker:dind-rootless`, privileged) — a Docker daemon, used **only** by the
@@ -194,7 +195,7 @@ Two stages:
    job), using the `jenkins-harbor` credential. The image kind is chosen by the `BUILD_NATIVE`
    parameter: **default `false` → JVM image** from `Dockerfile.jvm-multi-stage` (Maven fast-jar
    build on a JRE base, fast), keeping CI quick; flip to `true` for
-   `Dockerfile.native-multi-stage` (native binary compiled inside the Mandrel/JDK‑21 builder
+   `Dockerfile.native-multi-stage` (native binary compiled inside the Mandrel/JDK‑25 builder
    stage — the slow, multi‑minute, long‑term target). **On `main`/`master`** the same image is
    additionally tagged and pushed as **`latest`**.
 
@@ -268,8 +269,9 @@ Design decisions and non-obvious constraints, kept here so a fresh session doesn
 "fix" something on purpose. (Human-facing usage docs live above; full deploy wiring
 lives in `../../hashbin-deploy`.)
 
-- **Build with JDK 21, not 25.** Quarkus 3.20's Byte Buddy rejects Java 25 class files at
-  Hibernate build time. Point `JAVA_HOME` at any JDK 21.
+- **Build with JDK 25.** The reactor targets `maven.compiler.release=25` and the CI/Docker images
+  use JDK 25 (Quarkus 3.40 supports it; the old "Byte Buddy rejects Java 25" limit was a Quarkus
+  3.20-era constraint and no longer applies). Point `JAVA_HOME` at any JDK 25.
 - **Dev/test DB is Quarkus Dev Services** — `application.properties` has **no dev/test JDBC
   URL**, so Dev Services starts a throwaway `postgres:16-alpine` (image pinned via
   `quarkus.datasource.devservices.image-name`) through Testcontainers.

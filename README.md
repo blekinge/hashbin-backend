@@ -6,8 +6,8 @@ independent build units:
 
 | Module | What it is | Build |
 |---|---|---|
-| **`hashbin-quarkus`** | The service / Docker image. **All Quarkus lives here.** | Quarkus 3.40.1 / JDK 21 |
-| **`hashbin-api`** | Java client: **models + a MicroProfile REST Client generated from the service's OpenAPI.** | JDK 21, openapi-generator + Jackson |
+| **`hashbin-quarkus`** | The service / Docker image. **All Quarkus lives here.** | Quarkus 3.40.1 / JDK 25 |
+| **`hashbin-api`** | Java client: **models + a MicroProfile REST Client generated from the service's OpenAPI.** | JDK 25, openapi-generator + Jackson |
 
 A parent POM (`hashbin-backend`, `packaging=pom`) aggregates the two and holds only
 shared, Quarkus-free build config.
@@ -48,7 +48,7 @@ The bearer token is supplied with `BearerClientHeadersFactory` (SmallRye filters
 ## Build
 
 ```bash
-export JAVA_HOME=<a JDK 21>     # Quarkus's bundled toolchain rejects JDK 25 class files
+export JAVA_HOME=<a JDK 25>
 
 ./mvnw clean install            # builds + tests both modules
 ./mvnw -pl hashbin-api test     # just the client library's tests (no container needed)

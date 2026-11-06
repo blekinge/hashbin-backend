@@ -95,7 +95,7 @@ dependencies into the models. `microprofile` yields clean Jackson POJOs + JAX-RS
 ## Build & test
 
 ```bash
-export JAVA_HOME=<a JDK 21>
+export JAVA_HOME=<a JDK 25>
 ./mvnw install -DskipTests      # build the service first (emits the spec), then generate + compile this
 ./mvnw -pl hashbin-api test     # generated models/client + bearer + spec-bundling
 ```

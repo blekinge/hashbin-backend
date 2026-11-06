@@ -17,7 +17,7 @@
 //     README "Decisions & gotchas" — it is why local dev uses Podman). So the pod runs a plain
 //     `postgres` sidecar and the build points its datasource at it, bypassing Dev Services entirely.
 //   * Stage 2 builds the container image with `docker build` of a multi-stage recipe — JVM by
-//     default, native (Mandrel/JDK-21 builder stage, native-image runs there — no GraalVM on the
+//     default, native (Mandrel/JDK-25 builder stage, native-image runs there — no GraalVM on the
 //     agent) when BUILD_NATIVE=true. Either way that needs a Docker daemon, so a
 //     `docker:dind-rootless` sidecar stays; the docker CLI / BuildKit it drives speak a modern API,
 //     so the version problem above does not apply to the image build.
@@ -52,7 +52,7 @@ pipeline {
                   containers:
                   # jdk: runs ./mvnw — compile + the test suite
                   - name: jdk
-                    image: eclipse-temurin:21-jdk-ubi9-minimal
+                    image: eclipse-temurin:25-jdk-ubi10-minimal
                     command: [cat]
                     tty: true
                     env:
@@ -120,8 +120,8 @@ pipeline {
             steps {
                 container('jdk') {
                     withMaven() {
-                        // The wrapper downloads Maven 3.9.16 and builds on the image's JDK 21 (the
-                        // only JDK Quarkus 3.20's Hibernate build accepts). the datasource env above points it at the postgres sidecar.
+                        // The wrapper downloads Maven 3.9.16 and builds on the image's JDK 25.
+                        // the datasource env above points it at the postgres sidecar.
                         sh './mvnw $MAVEN_CONFIG --no-transfer-progress clean install'
 
                         // Capture the version for the image tag now, while we have the wrapper and
