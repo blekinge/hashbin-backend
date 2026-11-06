@@ -74,6 +74,9 @@ public class AuthResource {
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
     @Operation(summary = "Exchange email + password for an access token")
+    @APIResponse(responseCode = "200", description = "Login succesful, returns an access token",
+                 content = @Content(schema = @Schema(implementation = AuthResponse.class)))
+    @APIResponse(responseCode = "401", description = "Invalid email or password")
     public Response login(AuthRequest req) {
         if (req == null || isBlank(req.email) || isBlank(req.password)) {
             return Errors.json(401, "Invalid email or password");

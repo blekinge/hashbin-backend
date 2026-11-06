@@ -18,6 +18,7 @@
     <quarkus.platform.artifact-id>quarkus-bom</quarkus.platform.artifact-id>
     <quarkus.platform.group-id>io.quarkus.platform</quarkus.platform.group-id>
     <quarkus.platform.version>3.40.1</quarkus.platform.version>
+    <lombok.version>1.18.48</lombok.version>
   </properties>
 
   <dependencyManagement>
@@ -94,6 +95,18 @@
       <artifactId>quarkus-container-image-docker</artifactId>
     </dependency>
 
+    <!-- Lombok: compile/test-only code generation. provided keeps it off the runtime classpath,
+         and Quarkus has built-in Lombok support so this single dependency covers normal builds and
+         dev mode / live reload. The compiler-plugin below runs it as an explicit annotation
+         processor (required on JDK 21+). The Quarkus BOM does not manage this artifact, hence the
+         explicit version (the only module that uses Lombok owns it). -->
+    <dependency>
+      <groupId>org.projectlombok</groupId>
+      <artifactId>lombok</artifactId>
+      <version>${lombok.version}</version>
+      <scope>provided</scope>
+    </dependency>
+
     <!-- Test -->
     <dependency>
       <groupId>io.quarkus</groupId>
@@ -127,6 +140,20 @@
       </plugin>
       <plugin>
         <artifactId>maven-compiler-plugin</artifactId>
+        <configuration>
+          <!-- Run Lombok as an explicit annotation processor. Since JDK 21 javac no longer runs
+               processors discovered implicitly on the classpath (and this build runs on a newer
+               JDK where that is disabled by default), Lombok must be named on the processor path
+               or its code generation (e.g. @Value/@AllArgsConstructor) is silently skipped.
+               <parameters> is inherited from the parent's pluginManagement. -->
+          <annotationProcessorPaths>
+            <path>
+              <groupId>org.projectlombok</groupId>
+              <artifactId>lombok</artifactId>
+              <version>${lombok.version}</version>
+            </path>
+          </annotationProcessorPaths>
+        </configuration>
       </plugin>
       <plugin>
         <artifactId>maven-surefire-plugin</artifactId>

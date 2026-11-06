@@ -14,6 +14,8 @@ public class HealthResourceTest {
         given()
                 .when().get("/api/health")
                 .then()
+                .log()
+                .ifError()
                 .statusCode(200)
                 .body("status", org.hamcrest.Matchers.is("ok"));
     }
