@@ -202,7 +202,7 @@ pipeline {
                                 // <server id="sbforge-nexus"> come from the settings.xml withMaven()
                                 // provides — SBForge's public Nexus, where hashbin-cli's CI then
                                 // resolves this artifact from (see hashbin-cli/pom.xml <repositories>).
-                                sh './mvnw --batch-mode --no-transfer-progress --errors deploy -pl .,hashbin-api -Psbforge-nexus -DskipTests'
+                                sh './mvnw --batch-mode --no-transfer-progress --errors deploy --projects .,hashbin-api --define sbforge-nexus --define skipTests'
                             } else {
                                 echo "Branch '${branch}' is not main/master; skipping hashbin-api Nexus deploy."
                             }
