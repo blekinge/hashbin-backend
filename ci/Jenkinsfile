@@ -1,253 +1,51 @@
-// Self-contained Jenkins pipeline for the hashbin-quarkus backend. No shared-library calls on
-// purpose: the org's `DockerfileBuild` can't run this project's tests and `DinDBuild` can't push
-// its image (see the "why" in README "CI (Jenkins)" / "Decisions & gotchas"). This one run builds,
-// tests, and pushes a container image to the org Harbor — a JVM image by default, the native one
-// when the BUILD_NATIVE parameter is true.
+// Jenkins pipeline for the hashbin-backend service: builds and tests the reactor, then builds and
+// pushes a container image to the org Harbor — a JVM image by default, the native one when the
+// BUILD_NATIVE parameter is true. On main/master it also deploys `hashbin-api` (plus this parent pom,
+// which its pom references) to SBForge's public Nexus, which is how sibling projects such as
+// hashbin-cli resolve it without a local checkout of this repo.
+//
+// The stages themselves live in the org's Platform shared library, in `vars/DinDImageBuild.groovy`:
+// test in a JDK container, then `docker build --target final` + push with a dind-rootless daemon.
+// Nothing here is hashbin-specific except the values below — the image name, the two recipes, the JDK,
+// and the Nexus command. Why that shape, and why `DockerfileBuild` (five-stage contract, tests only
+// inside the image) could not be used, is documented in the var's header and in README
+// "CI (Jenkins)" / "Decisions & gotchas". `DinDBuild` is the same pipeline without the image stage;
+// it is now a deprecated wrapper around this var, so this call does not have to choose between them.
 //
 // Why `ci/Jenkinsfile` and not the repository root: the org runs two Jenkins controllers that find
 // pipelines by *path* — the legacy one reads `Jenkinsfile` in the root, the current one
 // `ci/Jenkinsfile`. Sitting under `ci/` means only the current controller builds this repo and
 // posts the PR commit status, so a pull request is gated by exactly one real build.
-//
-// Pod layout (three containers) and why:
-//   * Stage 1 (tests) deliberately does NOT go through Testcontainers. The suite uses Quarkus Dev
-//     Services (no JDBC URL => Testcontainers starts Postgres in a container), but legacy
-//     docker-java/Testcontainers clients negotiate Docker API v1.32, which modern daemons reject ("minimum
-//     supported API version is 1.40") and DOCKER_API_VERSION is ignored by that client (see
-//     README "Decisions & gotchas" — it is why local dev uses Podman). So the pod runs a plain
-//     `postgres` sidecar and the build points its datasource at it, bypassing Dev Services entirely.
-//   * Stage 2 builds the container image with `docker build` of a multi-stage recipe — JVM by
-//     default, native (Mandrel/JDK-25 builder stage, native-image runs there — no GraalVM on the
-//     agent) when BUILD_NATIVE=true. Either way that needs a Docker daemon, so a
-//     `docker:dind-rootless` sidecar stays; the docker CLI / BuildKit it drives speak a modern API,
-//     so the version problem above does not apply to the image build.
-// All containers share the Jenkins workspace volume. The Harbor naming + `jenkins-harbor`
-// credential mirror `DockerfileBuild`.
 
-// Shell prelude for steps that drive the docker CLI inside the dind container.
-// docker:dind-rootless runs dockerd as a non-root user, whose socket is at $XDG_RUNTIME_DIR/docker.sock
-// (i.e. /run/user/<uid>), and the image does NOT export DOCKER_HOST. Do NOT hardcode the uid — derive
-// it from the live `id -u` so it is correct whatever user the build agent runs as. Also waits for the
-// daemon to answer before returning.
-String dockerClientEnv() {
-    return '''
-        set -eu
-        RUNTIME="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
-        [ -S "$RUNTIME/docker.sock" ] || RUNTIME="/run/user/$(id -u)"
-        export XDG_RUNTIME_DIR="$RUNTIME"
-        export DOCKER_HOST="unix://$RUNTIME/docker.sock"
-        export DOCKER_BUILDKIT=1
-        for i in $(seq 1 60); do docker info >/dev/null 2>&1 && break; sleep 1; done
-        docker info >/dev/null   # fail fast, clearly, if the daemon never comes up
-    '''
-}
+library identifier: 'DinDImageBuild@dindimagebuild-replaces-dindbuild', retriever: modernSCM(scm: [$class: 'GitSCMSource', remote: 'https://sbprojects.statsbiblioteket.dk/stash/scm/ist/jenkins-shared.git', credentialsId: 'sbprojects-stash'], libraryPath: "Platform") _
 
-pipeline {
-    agent {
-        kubernetes {
-            yaml """
-                apiVersion: v1
-                kind: Pod
-                spec:
-                  containers:
-                  # jdk: runs ./mvnw — compile + the test suite
-                  - name: jdk
-                    image: eclipse-temurin:25-jdk-ubi10-minimal
-                    command: [cat]
-                    tty: true
-                    env:
-                    - name: DOCKER_HOST
-                      value: tcp://localhost:2376
-                    - name: DOCKER_CERT_PATH
-                      value: /docker-certs
-                    - name: DOCKER_TLS_VERIFY
-                      value: "1"
-                    - name: TESTCONTAINERS_RYUK_DISABLED
-                      value: "true"
-                    volumeMounts:
-                      - mountPath: /docker-certs
-                        name: docker-certs
-                        subPath: client
-                        readOnly: true
-                    resources:
-                      requests: { memory: "1Gi" }
-                      limits:   { memory: "4Gi" }
-                  # docker: the daemon that builds + pushes the native image (stage 2 only).
-                  - name: docker
-                    image: docker:dind-rootless
-                    tty: true
-                    securityContext:
-                      privileged: true
-                    resources:
-                      requests: { memory: "4Gi" }
-                      limits:   { memory: "8Gi" }
-                    env:
-                    - name: DOCKER_TLS_CERTDIR
-                      value: /docker-certs
-                    volumeMounts:
-                      - mountPath: "/docker-certs"
-                        name: "docker-certs"
-                  volumes:
-                    - name: docker-certs
-                      emptyDir: {}
-                """
-            retries 2
-        }
-    }
+DinDImageBuild {
+    // The wrapper builds on the image's JDK 25; the library default is the JDK 21 image DinDBuild
+    // uses. `buildCommand` and `mavenExecutable` are left at their defaults, which are exactly
+    // './mvnw $MAVEN_CONFIG --no-transfer-progress clean install'.
+    jdkImage = 'eclipse-temurin:25-jdk-ubi10-minimal'
 
-    options {
-        disableConcurrentBuilds()
-        timeout(time: 45, unit: 'MINUTES')       // generous headroom; covers the native path when BUILD_NATIVE=true
-        buildDiscarder(logRotator(numToKeepStr: '5'))
-    }
+    // A PINNED literal, deliberately not derived from the git repo slug: renaming the GitHub repo
+    // must not move the image that consumers (hashbin-deploy) pull. Kept equal to the OSS
+    // ghcr.io/blekinge/hashbin-backend image name.
+    projectName = 'hashbin-backend'
+    // The Bitbucket-for-Jenkins env vars are null on this GitHub job, so the Harbor library segment —
+    // the org account 'blekinge' — has to be stated rather than derived.
+    harborLibrary = 'blekinge'
 
-    parameters {
-        // Toggleable from the Jenkins UI ("Build with Parameters"). A booleanParam is exposed to
-        // the steps as the string env.BUILD_NATIVE == 'true'/'false', so the stage-2 logic below
-        // is unchanged. Default false = fast JVM image. The first run after this is added has no
-        // value yet (env.BUILD_NATIVE is null) -> the == 'true' checks fall through to JVM, the
-        // safe fast default; from the second run the last-used/default value applies.
-        booleanParam(
-            name: 'BUILD_NATIVE',
-            defaultValue: false,
-            description: 'Build/push the native (Mandrel) image. Off = JVM image (fast). The ' +
-                         'native build is the slow, multi-minute path and the long-term target.'
-        )
-    }
+    // Both recipes build from source with a `final` stage. JVM is the fast default; native is the
+    // (slow, multi-minute) long-term target, selected by the BUILD_NATIVE parameter the library
+    // declares because a nativeDockerfile is passed.
+    dockerfile = 'hashbin-quarkus/src/main/docker/Dockerfile.jvm-multi-stage'
+    nativeDockerfile = 'hashbin-quarkus/src/main/docker/Dockerfile.native-multi-stage'
+    timeoutMinutes = 45
 
-    stages {
-        stage('Build and test') {
-            steps {
-                container('jdk') {
-                    withMaven() {
-                        // The wrapper downloads Maven 3.9.16 and builds on the image's JDK 25.
-                        // the datasource env above points it at the postgres sidecar.
-                        sh './mvnw $MAVEN_CONFIG --no-transfer-progress clean install'
-
-                        // Capture the version for the image tag now, while we have the wrapper and
-                        // JDK here; the "image build" stage runs in the "docker" container, which has no JDK.
-                        script {
-                            def version = sh(returnStdout: true, script: '''
-                                ./mvnw $MAVEN_CONFIG --quiet --define forceStdout \
-                                  --define expression=project.version help:evaluate
-                            ''').trim()
-                            env.PROJECT_VERSION = version
-                            echo "Project version: ${version}"
-                        }
-                    }
-                }
-            }
-        }
-
-        stage('Publish API artifact') {
-            steps {
-                container('jdk') {
-                    withMaven() {
-                        script {
-                            // Only main/master publishes: every merge would otherwise push the same
-                            // 1.0.0-SNAPSHOT from feature branches too, and the last writer wins —
-                            // consumers (hashbin-cli's CI compile) must see exactly what is on main.
-                            // Branch detection mirrors the image stage below (env.GIT_BRANCH fallback
-                            // for jobs that are not multibranch).
-                            def branch = (env.BRANCH_NAME
-                                ?: (env.GIT_BRANCH ?: '').replaceAll(/^(refs\/heads\/|origin\/)/, '')
-                                ?: 'dev').toLowerCase()
-                            if (branch in ['main', 'master']) {
-                                // Deploy the parent pom + hashbin-api only. The parent must go too:
-                                // hashbin-api's pom references it, and consumers could not resolve the
-                                // api without it. hashbin-quarkus is deliberately NOT in this reactor
-                                // (a service is distributed as a container image, not a Maven artifact;
-                                // its -openapi.jar dependency resolves from stage 1's `install`, same
-                                // container and local repo). Server credentials for
-                                // <server id="sbforge-nexus"> come from the settings.xml withMaven()
-                                // provides — SBForge's public Nexus, where hashbin-cli's CI then
-                                // resolves this artifact from (see hashbin-cli/pom.xml <repositories>).
-                                sh './mvnw $MAVEN_CONFIG --errors --activate-profiles sbforge-nexus --define sbforge-nexus deploy --projects .,hashbin-api --define skipTests'
-                            } else {
-                                echo "Branch '${branch}' is not main/master; skipping hashbin-api Nexus deploy."
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        stage('Build and push image') {
-            steps {
-                container('docker') {
-                    script {
-                        // Harbor image path: harbor.tools.nyx.kb.dk/blekinge/<repo>.
-                        // The library segment is the org account 'blekinge' (the Bitbucket-for-
-                        // Jenkins env vars are null on this GitHub job, so don't depend on them).
-                        def harborName = 'harbor.tools.nyx.kb.dk'
-                        def harborLibrary = 'blekinge'
-                        // Image name: a PINNED literal, deliberately NOT derived from the git repo
-                        // slug — renaming the GitHub repo must not move the image that consumers
-                        // (hashbin-deploy) pull. Kept equal to the OSS ghcr image name below.
-                        def projectName = 'hashbin-backend'
-
-                        def validBranchTag = (env.BRANCH_NAME ?: 'dev')
-                            .replace('/', '-').replace('+', '-').replace('_', '-')
-                            .toLowerCase().take(30).replaceAll(/-+$/, '')
-
-                        def imageVersion = "${env.PROJECT_VERSION}-${validBranchTag}-sha.${env.GIT_COMMIT}-build.${env.BUILD_NUMBER}"
-                        env.IMAGE_TAG = "${harborName}/${harborLibrary}/${projectName}:${imageVersion}"
-
-                        // On the main branch (master or main), also publish THIS image under a moving
-                        // `latest` tag so consumers can pull the current build without knowing the
-                        // version. `env.LATEST_TAG` is always assigned (empty string off the main
-                        // branch) so the `set -u` shell steps below can reference it safely; the build
-                        // adds a second `--tag` and the push a second `docker push` only when it is set.
-                        def branch = (env.BRANCH_NAME
-                            ?: (env.GIT_BRANCH ?: '').replaceAll(/^(refs\/heads\/|origin\/)/, '')
-                            ?: 'dev').toLowerCase()
-                        def isMain = branch in ['main', 'master']
-                        env.LATEST_TAG = isMain ? "${harborName}/${harborLibrary}/${projectName}:latest" : ''
-
-                        // Pick the image recipe from the flag. Both are source builds with a `final`
-                        // stage; JVM is the fast default, native is the (slow) long-term target.
-                        env.BUILD_DOCKERFILE = (env.BUILD_NATIVE == 'true') \
-                            ? 'hashbin-quarkus/src/main/docker/Dockerfile.native-multi-stage' \
-                            : 'hashbin-quarkus/src/main/docker/Dockerfile.jvm-multi-stage'
-                        echo "Building and pushing ${env.IMAGE_TAG} (${env.BUILD_NATIVE == 'true' ? 'native' : 'JVM'} image from ${env.BUILD_DOCKERFILE})"
-                        if (isMain) echo "Main branch '${branch}': also tagging and pushing ${env.LATEST_TAG}"
-                    }
-                    
-                    withMaven() {
-                        
-                        // Build from source so the pushed image never depends on a locally built
-                        // artifact. DOCKER_BUILDKIT=1 (set by the prelude) honours
-                        // `# syntax=docker/dockerfile:1`. For the JVM image, Maven packages the fast-jar
-                        // in the build stage; for the native image, the binary compiles inside the
-                        // Mandrel builder stage — neither needs a JDK or nested container in this step.
-                        sh dockerClientEnv() + '''docker build \
-                          --target final \
-                          --tag "$IMAGE_TAG" \
-                          ${LATEST_TAG:+--tag $LATEST_TAG} \
-                          --file "$BUILD_DOCKERFILE" \
-                          --secret id=settings.xml,src=$MVN_SETTINGS \
-                          .
-                        '''
-                    }
-
-                    withCredentials([usernamePassword(credentialsId: 'jenkins-harbor',
-                                                      usernameVariable: 'USERNAME',
-                                                      passwordVariable: 'PASSWORD')]) {
-                        sh dockerClientEnv() + '''
-                            printf '%s' "$PASSWORD" | docker login harbor.tools.nyx.kb.dk \
-                              --username "$USERNAME" --password-stdin
-                            docker push "$IMAGE_TAG"
-                            if [ -n "$LATEST_TAG" ]; then docker push "$LATEST_TAG"; fi
-                        '''
-                    }
-                }
-            }
-        }
-    }
-
-    post {
-        success {
-            echo "Published ${env.IMAGE_TAG}${env.LATEST_TAG ? ' and ' + env.LATEST_TAG : ''}"
-        }
-    }
+    // The library runs this only on main/master: every merge would otherwise push the same
+    // 1.0.0-SNAPSHOT from feature branches too, and the last writer wins — consumers must see exactly
+    // what is on main. The parent pom must be in the reactor because hashbin-api's pom references it;
+    // hashbin-quarkus is deliberately NOT, since a service is distributed as a container image, not a
+    // Maven artifact. Credentials for <server id="sbforge-nexus"> come from the settings.xml that
+    // withMaven() provides. Single-quoted so $MAVEN_CONFIG reaches the shell, not Groovy.
+    nexusDeployCommand = './mvnw $MAVEN_CONFIG --errors --activate-profiles sbforge-nexus' +
+                         ' --define sbforge-nexus deploy --projects .,hashbin-api --define skipTests'
 }
