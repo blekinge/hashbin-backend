@@ -17,7 +17,7 @@
 // `ci/Jenkinsfile`. Sitting under `ci/` means only the current controller builds this repo and
 // posts the PR commit status, so a pull request is gated by exactly one real build.
 
-library identifier: 'DinDImageBuild@dindimagebuild-replaces-dindbuild', retriever: modernSCM(scm: [$class: 'GitSCMSource', remote: 'https://sbprojects.statsbiblioteket.dk/stash/scm/ist/jenkins-shared.git', credentialsId: 'sbprojects-stash'], libraryPath: "Platform") _
+library identifier: 'DinDImageBuild@master', retriever: modernSCM(scm: [$class: 'GitSCMSource', remote: 'https://sbprojects.statsbiblioteket.dk/stash/scm/ist/jenkins-shared.git', credentialsId: 'sbprojects-stash'], libraryPath: "Platform") _
 
 DinDImageBuild {
     // The wrapper builds on the image's JDK 25; the library default is the JDK 21 image DinDBuild
